@@ -26,11 +26,11 @@ const EN_STAGE_LABEL = (level) => {
 // The query is redacted if any pattern matches; otherwise it is truncated
 // to a safe length before being passed to DuckDuckGo.
 const PII_PATTERNS = [
-  /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g,           // email addresses
-  /\+?\d[\d\s().-]{7,}\d/g,                 // phone numbers (local/international)
-  /\b\d{9,}\b/g,                             // long numeric IDs
-  /\bpassword[:\s=][^\s]+/gi,                // password literals
-  /\b(?:ssn|sin|nino)\b/gi,                  // government ID keywords
+  /\b[\w.+-]+@[\w-]+\.[\w.]+\b/,            // email addresses
+  /\+?\d(?:[\s().-]*\d){7,}(?=\D|$)/,       // phone numbers (local/international)
+  /\b\d{9,}\b/,                              // long numeric IDs
+  /\bpassword[:\s=][^\s]+/i,                 // password literals
+  /\b(?:ssn|sin|nino)\b/i,                   // government ID keywords
 ];
 
 /**

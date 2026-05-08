@@ -244,7 +244,7 @@ router.get('/contacts', async (req, res) => {
       // Admin/teacher users (for tutor only)
       if (role === 'tutor') {
         const { rows: admins } = await db.query(
-          `SELECT id, fname, lname, role, code FROM users WHERE role = 'admin' LIMIT 10`
+          `SELECT id, fname, lname, role, code FROM users WHERE role = 'admin' LIMIT 100`
         );
         contacts.push(...admins.map(u => ({
           id: u.id,
