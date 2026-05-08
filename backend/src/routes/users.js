@@ -23,6 +23,8 @@ const FIELD_MAP = {
   badges:           'badges',
   completedLessons: 'completed_lessons',
   questsDone:       'quests_done',
+  quizWeakPoints:   'quiz_weak_points',
+  lastQuizKey:      'last_quiz_key',
   placementDone:    'placement_done',
   completedOnboard: 'completed_onboard',
 };
@@ -32,11 +34,12 @@ const FIELD_MAP = {
 router.get('/me', async (req, res) => {
   try {
     const { rows: [u] } = await db.query(
-      `SELECT id, email, role, fname, lname, code, avatar, photo, career,
-              parent_email, reminder_time, lang, xp, level, streak, last_study,
-              english_level, subject_scores, badges, completed_lessons,
-              quests_done, placement_done, completed_onboard
-       FROM users WHERE id = $1`,
+       `SELECT id, email, role, fname, lname, code, avatar, photo, career,
+               parent_email, reminder_time, lang, xp, level, streak, last_study,
+               english_level, subject_scores, badges, completed_lessons,
+               quests_done, quiz_weak_points, last_quiz_key,
+               placement_done, completed_onboard
+        FROM users WHERE id = $1`,
       [req.user.userId]
     );
     if (!u) return res.status(404).json({ error: 'User not found' });
@@ -61,6 +64,8 @@ router.get('/me', async (req, res) => {
       badges: u.badges || [],
       completedLessons: u.completed_lessons || [],
       questsDone: u.quests_done || [],
+      quizWeakPoints: u.quiz_weak_points || {},
+      lastQuizKey: u.last_quiz_key || null,
       placementDone: u.placement_done,
       completedOnboard: u.completed_onboard,
       linkedStudents: links.map(l => l.student_code),
@@ -91,6 +96,8 @@ router.patch('/me', [
   body('badges').optional().isArray(),
   body('completedLessons').optional().isArray(),
   body('questsDone').optional().isArray(),
+  body('quizWeakPoints').optional().isObject(),
+  body('lastQuizKey').optional({ nullable: true }).isString().isLength({ max: 100 }),
   body('placementDone').optional().isBoolean(),
   body('completedOnboard').optional().isBoolean(),
 ], async (req, res) => {
@@ -98,7 +105,7 @@ router.patch('/me', [
   if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid input', details: errors.array() });
 
   // Columns stored as JSON in Postgres — must be serialized to string
-  const JSON_COLS = new Set(['subject_scores', 'badges', 'completed_lessons', 'quests_done']);
+  const JSON_COLS = new Set(['subject_scores', 'badges', 'completed_lessons', 'quests_done', 'quiz_weak_points']);
 
   const updates = {};
   for (const [jsKey, col] of Object.entries(FIELD_MAP)) {
@@ -190,6 +197,58 @@ router.get('/linked-students', async (req, res) => {
   } catch (err) {
     console.error('linked-students error:', err);
     res.status(500).json({ error: 'Failed to get linked students' });
+  }
+});
+
+// ── GET /api/users/instructor-notifications ──────────────────────────
+
+router.get('/instructor-notifications', async (req, res) => {
+  if (!['admin', 'tutor'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+  try {
+    const { rows } = await db.query(
+      `SELECT id, title, body, summary_json, channel, email_sent, created_at, read_at
+       FROM instructor_notifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [req.user.userId]
+    );
+    res.json(rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      summary: r.summary_json || {},
+      channel: r.channel,
+      emailSent: r.email_sent,
+      createdAt: r.created_at,
+      readAt: r.read_at,
+    })));
+  } catch (err) {
+    console.error('GET /users/instructor-notifications error:', err);
+    res.status(500).json({ error: 'Failed to retrieve notifications' });
+  }
+});
+
+// ── POST /api/users/instructor-notifications/:id/read ────────────────
+
+router.post('/instructor-notifications/:id/read', async (req, res) => {
+  if (!['admin', 'tutor'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+  try {
+    const { rowCount } = await db.query(
+      `UPDATE instructor_notifications
+       SET read_at = COALESCE(read_at, NOW())
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.userId]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Notification not found' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /users/instructor-notifications/:id/read error:', err);
+    res.status(500).json({ error: 'Failed to update notification' });
   }
 });
 

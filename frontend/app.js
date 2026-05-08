@@ -47,6 +47,8 @@ async function _tryRefresh() {
 
 function _hydrateFromServer(user) {
   if (!user) return;
+  user.quizWeakPoints = user.quizWeakPoints || {};
+  user.lastQuizKey = user.lastQuizKey || null;
   currentUser = user;
   if (!DB.users) DB.users = [];
   const idx = DB.users.findIndex(u => u.id === user.id);
@@ -2143,6 +2145,8 @@ function saveDB(){
     badges:           currentUser.badges,
     completedLessons: currentUser.completedLessons,
     questsDone:       currentUser.questsDone,
+    quizWeakPoints:   currentUser.quizWeakPoints || {},
+    lastQuizKey:      currentUser.lastQuizKey || null,
     placementDone:    currentUser.placementDone,
     completedOnboard: currentUser.completedOnboard,
     avatar:           currentUser.avatar,
@@ -2726,15 +2730,48 @@ function switchLang(lang){
 // ══════════════════════════════════════════
 let QS = { questions:[], current:0, answers:[], answered:false };
 
+function getSubjectQuizKeys(subjectKey){
+  const subj = SUBJECTS[subjectKey];
+  if(!subj) return [];
+  return subj.chapters.map(c => LESSONS[c.key]?.quizKey).filter(Boolean);
+}
+
+function chooseAdaptiveQuizKey(preferredQuizKey){
+  if(!currentUser) return preferredQuizKey;
+  if(currentUser.lastQuizKey !== preferredQuizKey) return preferredQuizKey;
+  const candidateKeys = getSubjectQuizKeys(currentSubject).filter(k => k !== preferredQuizKey && QUIZZES[k]);
+  if(candidateKeys.length === 0) return preferredQuizKey;
+  const byWeakness = candidateKeys
+    .map(key => {
+      const runs = (currentUser.quizHistory||[]).filter(q => q.lesson === key);
+      const avg = runs.length ? runs.reduce((s,q)=>s+(q.score||0),0)/runs.length : 0;
+      const weakCount = Object.values((currentUser.quizWeakPoints||{})[key]||{}).reduce((s,v)=>s+(v||0),0);
+      return { key, score: (100 - avg) + (weakCount * 8) + (Math.random()*8) };
+    })
+    .sort((a,b)=>b.score-a.score);
+  return byWeakness[0]?.key || preferredQuizKey;
+}
+
+function buildAdaptiveQuestions(quizKey, questions){
+  const weak = (currentUser?.quizWeakPoints||{})[quizKey] || {};
+  const tagged = questions.map((q, idx) => ({
+    ...q,
+    _qid: q.id || `${quizKey}_${idx}`,
+    _weight: (weak[q.id || `${quizKey}_${idx}`] || 0),
+  }));
+  return tagged.sort((a,b) => (b._weight - a._weight) || (Math.random() - 0.5));
+}
+
 function startQuiz(){
   const lesson = LESSONS[currentLesson?.key];
   if(!lesson) return;
-  const quiz = QUIZZES[lesson.quizKey];
+  const chosenQuizKey = chooseAdaptiveQuizKey(lesson.quizKey);
+  const quiz = QUIZZES[chosenQuizKey];
   if(!quiz){ showToast('Quiz bientôt disponible!','warn'); return; }
-  let qs = [...quiz.questions];
+  let qs = buildAdaptiveQuestions(chosenQuizKey, [...quiz.questions]);
   if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
   else if(currentUser.difficulty==='hard') qs = [...qs,...qs.slice(0,2)].slice(0,7);
-  QS = { questions:qs, current:0, answers:[], answered:false, quizKey:lesson.quizKey };
+  QS = { questions:qs, current:0, answers:[], answered:false, quizKey:chosenQuizKey };
   document.getElementById('quiz-hdr').textContent = quiz.title;
   document.getElementById('qtot').textContent = qs.length;
   renderQ();
@@ -2774,7 +2811,7 @@ function answerQ(ci){
   QS.answered=true;
   const q = QS.questions[QS.current];
   const ok = ci===q.correct;
-  QS.answers.push({ci, correct:q.correct, ok});
+  QS.answers.push({ci, correct:q.correct, ok, qid:q._qid});
   document.querySelectorAll('.choice').forEach((b,i)=>{
     if(i===q.correct) b.classList.add('ok');
     else if(i===ci&&!ok) b.classList.add('bad');
@@ -2839,6 +2876,19 @@ function showResults(){
     date:new Date().toISOString(), lesson:QS.quizKey, score:pct, correct, total,
     subject: currentSubject
   };
+  const weak = currentUser.quizWeakPoints || {};
+  const weakForQuiz = { ...(weak[QS.quizKey] || {}) };
+  QS.answers.forEach(a => {
+    if(!a.qid) return;
+    if(a.ok){
+      if(weakForQuiz[a.qid]) weakForQuiz[a.qid] = Math.max(0, weakForQuiz[a.qid]-1);
+      if(weakForQuiz[a.qid] === 0) delete weakForQuiz[a.qid];
+    } else {
+      weakForQuiz[a.qid] = (weakForQuiz[a.qid] || 0) + 1;
+    }
+  });
+  currentUser.quizWeakPoints = { ...weak, [QS.quizKey]: weakForQuiz };
+  currentUser.lastQuizKey = QS.quizKey;
   currentUser.quizHistory = [...(currentUser.quizHistory||[]), _newQuizEntry];
   // Record on server (fire-and-forget)
   _apiCall('POST', '/progress/quiz', {
@@ -2981,6 +3031,30 @@ function renderSettings(){
 // PARENT / TUTOR DASHBOARD
 // ══════════════════════════════════════════
 let selectedStudent = null;
+let instructorNotifications = [];
+
+async function loadInstructorNotifications(){
+  if(!currentUser || !['tutor','admin'].includes(currentUser.role)) return [];
+  try {
+    const res = await _apiCall('GET', '/users/instructor-notifications');
+    if(!res.ok) return [];
+    instructorNotifications = await res.json();
+    return instructorNotifications;
+  } catch {
+    return [];
+  }
+}
+
+function renderInstructorNotificationAlert(alerts){
+  if(currentUser?.role==='tutor' && instructorNotifications.length){
+    const latest = instructorNotifications[0];
+    alerts.push({
+      type:'good',
+      icon:'🗓️',
+      text:`${latest.title}: ${(latest.summary?.coursesUpdated||0)} cours, ${(latest.summary?.questionsUpdated||0)} questions, ${(latest.summary?.testsPublished||0)} tests publiés.`,
+    });
+  }
+}
 
 function goParentDash(){
   const u = currentUser;
@@ -2994,6 +3068,15 @@ function goParentDash(){
   else av.textContent = u.avatar||'👨‍👩‍👧';
 
   renderStudentSelector();
+  loadInstructorNotifications().then(() => {
+    if(selectedStudent) renderStudentReport();
+    else {
+      const alerts = [];
+      renderInstructorNotificationAlert(alerts);
+      document.getElementById('parent-alerts').innerHTML = alerts.map(a=>
+        `<div class="alert-card ${a.type}"><div class="alert-icon">${a.icon}</div><div class="alert-text">${a.text}</div></div>`).join('');
+    }
+  });
   showScreen('parent');
 }
 
@@ -3103,6 +3186,7 @@ function renderStudentReport(){
 
   // Alerts
   const alerts = [];
+  renderInstructorNotificationAlert(alerts);
   if((s.streak||0)===0) alerts.push({type:'warn',icon:'🔥',text:`${s.fname||'L\'élève'} n'a pas étudié aujourd'hui. Envoyez un rappel!`});
   if((s.streak||0)>=7) alerts.push({type:'good',icon:'🌟',text:`Bravo! ${s.fname||'L\'élève'} a une série de ${s.streak} jours consécutifs!`});
   if(enPct<20) alerts.push({type:'warn',icon:'🇺🇸',text:`Niveau anglais faible (${enPct}%). Encouragez la pratique des leçons ELA.`});

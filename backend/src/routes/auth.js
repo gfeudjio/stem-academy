@@ -56,7 +56,8 @@ async function buildUserResponse(userId) {
     `SELECT id, email, role, fname, lname, code, avatar, photo, career,
             parent_email, reminder_time, lang, xp, level, streak, last_study,
             english_level, subject_scores, badges, completed_lessons,
-            quests_done, placement_done, completed_onboard, created_at
+            quests_done, quiz_weak_points, last_quiz_key,
+            placement_done, completed_onboard, created_at
      FROM users WHERE id = $1`,
     [userId]
   );
@@ -139,6 +140,8 @@ async function buildUserResponse(userId) {
     badges: u.badges || [],
     completedLessons: u.completed_lessons || [],
     questsDone: u.quests_done || [],
+    quizWeakPoints: u.quiz_weak_points || {},
+    lastQuizKey: u.last_quiz_key || null,
     placementDone: u.placement_done,
     completedOnboard: u.completed_onboard,
     linkedStudents,
