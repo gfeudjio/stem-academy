@@ -234,6 +234,18 @@
       <div id="quest-items"></div>
     </div>
 
+    <!-- Daily Puzzle Banner -->
+    <div class="aup" style="animation-delay:.12s">
+      <div onclick="goTo('puzzle')" style="background:linear-gradient(135deg,rgba(124,77,255,.18),rgba(61,142,245,.14));border:1px solid rgba(124,77,255,.35);border-radius:var(--r);padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:12px">
+        <div style="font-size:32px">🧩</div>
+        <div style="flex:1">
+          <div style="font-weight:700;font-size:14px">Puzzle du Jour</div>
+          <div style="font-size:12px;color:var(--muted)" id="home-puzzle-status">Un nouveau défi t'attend!</div>
+        </div>
+        <div style="background:rgba(124,77,255,.25);border:1px solid rgba(124,77,255,.4);border-radius:8px;padding:4px 10px;font-size:12px;color:#a78bfa;font-weight:600">→ Jouer</div>
+      </div>
+    </div>
+
     <!-- Subjects -->
     <div class="aup" style="animation-delay:.15s">
       <div class="flex-between" style="margin-bottom:12px">
@@ -563,7 +575,8 @@
       <button onclick="toggleMoreMenu();goTo('leader')" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">🏆<span style="font-weight:600">Classement</span></button>
       <button onclick="toggleMoreMenu();goTo('calendar')" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">📅<span style="font-weight:600">Planning</span></button>
       <button onclick="toggleMoreMenu();goTo('msg')" style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">💬<span style="font-weight:600">Messages</span></button>
-      <button onclick="toggleMoreMenu();goTo('settings')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">⚙️<span style="font-weight:600">Réglages</span></button>
+      <button onclick="toggleMoreMenu();goTo('puzzle')" style="background:rgba(245,166,35,0.08);border:1px solid rgba(245,166,35,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">🧩<span style="font-weight:600">Puzzle Jour</span></button>
+      <button onclick="toggleMoreMenu();goTo('settings')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;grid-column:span 2">⚙️<span style="font-weight:600">Réglages</span></button>
     </div>
   </div>
 </div>
@@ -687,18 +700,92 @@
   </div>
 </div>
 
-<!-- TUTOR MESSAGING SCREEN -->
+<!-- MESSAGING SCREEN (student ↔ tutor ↔ teacher) -->
 <div class="screen" id="screen-msg">
   <div class="screen-header">
-    <button class="back-btn" onclick="goBack()">←</button>
-    <h2>💬 Messages Tuteur</h2>
+    <button class="back-btn" onclick="msgHandleBack()">←</button>
+    <h2 id="msg-screen-title">💬 Messages</h2>
+    <div id="msg-online-dot" style="width:8px;height:8px;background:var(--mint);border-radius:50%;margin-left:auto"></div>
   </div>
   <div class="screen-body" style="padding:16px;max-width:520px;margin:0 auto;display:flex;flex-direction:column;height:calc(100% - 56px)">
-    <div id="msg-student-info" style="background:rgba(99,102,241,0.08);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--muted)"></div>
-    <div id="msg-thread" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:14px;min-height:200px;max-height:400px"></div>
-    <div style="display:flex;gap:8px">
-      <textarea id="msg-input" placeholder="Écrire un message..." rows="2" style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit"></textarea>
-      <button onclick="sendMessage()" style="background:var(--accent);border:none;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:20px">↑</button>
+    <!-- Contacts view -->
+    <div id="msg-contacts-view">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;font-weight:600">Vos conversations</div>
+      <div id="msg-contacts-list"></div>
+      <div id="msg-no-contacts" style="display:none;text-align:center;padding:30px 0;color:var(--muted);font-size:13px">
+        📭 Aucun contact lié.<br/>Demandez à votre tuteur/parent de lier votre code.
+      </div>
+    </div>
+    <!-- Thread view -->
+    <div id="msg-thread-view" style="display:none;flex:1;display:none;flex-direction:column">
+      <button class="msg-back-btn" onclick="showMsgContacts()">← Toutes les conversations</button>
+      <div id="msg-student-info" style="background:rgba(99,102,241,0.08);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--muted)"></div>
+      <div id="msg-thread" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:14px;min-height:200px;max-height:400px"></div>
+      <div style="display:flex;gap:8px">
+        <textarea id="msg-input" placeholder="Écrire un message..." rows="2" style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--text);font-size:14px;resize:none;font-family:inherit"></textarea>
+        <button onclick="sendMessage()" style="background:var(--accent);border:none;color:#fff;border-radius:10px;padding:0 16px;cursor:pointer;font-size:20px">↑</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DAILY PUZZLE SCREEN -->
+<div class="screen" id="screen-puzzle">
+  <div class="puzzle-header">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <h2 style="flex:1;font-size:15px">🧩 Puzzle du Jour</h2>
+    <div id="puzzle-streak-badge" class="tag tag-amber" style="font-size:11px"></div>
+  </div>
+  <div class="puzzle-body">
+    <!-- Subject picker (shown when no subject selected) -->
+    <div id="puzzle-subject-picker">
+      <div class="section-title">Choisir la matière</div>
+      <div id="puzzle-subject-list"></div>
+    </div>
+    <!-- Puzzle game area (shown when a subject is selected) -->
+    <div id="puzzle-game-area" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div>
+          <div id="puzzle-subject-label" style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600"></div>
+          <div id="puzzle-day-label" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+        <button onclick="pickPuzzleSubject()" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer">Changer →</button>
+      </div>
+      <div id="puzzle-type-label" style="font-size:12px;color:var(--blue);margin-bottom:8px;font-weight:600"></div>
+
+      <!-- Word scramble puzzle -->
+      <div id="puzzle-scramble">
+        <div class="puzzle-hint-box" id="puzzle-hint-text"></div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;margin-bottom:6px">Reconstitue le mot — tape sur les lettres</div>
+        <div class="puzzle-answer-row" id="puzzle-answer-slots"></div>
+        <div class="puzzle-letters-row" id="puzzle-letter-tiles"></div>
+        <div id="puzzle-feedback" style="text-align:center;min-height:32px;font-size:15px;font-weight:700;margin-bottom:10px"></div>
+        <div style="display:flex;gap:8px">
+          <button onclick="checkPuzzleAnswer()" class="btn btn-primary" style="flex:1">✅ Vérifier</button>
+          <button onclick="clearPuzzleAnswer()" class="btn btn-ghost" style="flex:.5;font-size:13px">↺ Effacer</button>
+        </div>
+        <button onclick="showPuzzleHint()" style="width:100%;margin-top:8px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);color:var(--amber);border-radius:10px;padding:10px;font-size:13px;cursor:pointer">💡 Indice (−5 XP)</button>
+      </div>
+
+      <!-- Success state -->
+      <div id="puzzle-success" style="display:none;text-align:center;padding:20px">
+        <div style="font-size:56px;margin-bottom:8px" id="puzzle-success-emoji">🎉</div>
+        <div style="font-size:20px;font-weight:700;margin-bottom:6px" id="puzzle-success-word"></div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:16px" id="puzzle-success-info"></div>
+        <div style="background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);border-radius:12px;padding:12px;margin-bottom:16px">
+          <div style="font-size:13px;color:var(--mint);font-weight:600" id="puzzle-xp-earned">+30 XP Gagné!</div>
+        </div>
+        <button onclick="nextDailyPuzzle()" class="btn btn-gold btn-full">🎯 Puzzle suivant →</button>
+      </div>
+
+      <!-- Already done today -->
+      <div id="puzzle-done-today" style="display:none;text-align:center;padding:20px">
+        <div style="font-size:48px;margin-bottom:8px">✅</div>
+        <div style="font-weight:700;font-size:16px;margin-bottom:6px">Puzzle du jour complété!</div>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:16px">Reviens demain pour un nouveau défi.</div>
+        <button onclick="nextDailyPuzzle()" class="btn btn-ghost btn-full" style="margin-bottom:8px">🎲 Autre puzzle</button>
+        <button onclick="goTo('home')" class="btn btn-primary btn-full">🏠 Accueil</button>
+      </div>
     </div>
   </div>
 </div>
@@ -738,6 +825,9 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Emoji reaction overlay (motivational feedback) -->
+<div id="emoji-overlay" class="hidden"></div>
 </div>
 
 <script src="app.js"></script>
