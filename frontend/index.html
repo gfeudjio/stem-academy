@@ -395,6 +395,11 @@
       <div style="font-family:'Playfair Display',serif;font-size:15px;font-weight:700">ARIA – Tutrice IA</div>
       <div style="font-size:11px;color:var(--muted)">Bilingue FR/EN · Hors-ligne partiel</div>
     </div>
+    <button id="aria-web-btn" onclick="toggleAriaWebSearch()"
+      title="Activer la recherche web pour ARIA (données personnelles non transmises)"
+      style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--muted);
+             border-radius:8px;padding:5px 10px;font-size:11px;cursor:pointer;margin-right:6px;
+             transition:all .2s">🌐</button>
     <div id="aria-status" class="dot-online"></div>
   </div>
   <div class="quick-row">
@@ -468,6 +473,11 @@
       <div style="font-size:11px;color:var(--muted)" id="parent-role-label">Parent · Vue famille</div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
+      <!-- Language toggle: visible for tutors/admins only -->
+      <button id="tutor-lang-btn" onclick="setTutorLang(tutorLang==='fr'?'en':'fr')"
+        style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);
+               color:var(--accent);border-radius:8px;padding:5px 10px;font-size:12px;
+               cursor:pointer;display:none">🌐 English</button>
       <div id="parent-status" class="dot-online"></div>
       <div class="avatar-chip" id="parent-av" onclick="doLogout()">👨‍👩‍👧</div>
     </div>
@@ -480,17 +490,17 @@
       <div class="pdash-h-name" id="p-dash-name">Bonjour!</div>
       <div class="pdash-h-sub" id="p-dash-sub">Suivez les progrès de vos élèves</div>
 
-      <div class="section-title" style="margin-top:14px;margin-bottom:8px">👩🏾‍🎓 MES ÉLÈVES</div>
+      <div class="section-title" style="margin-top:14px;margin-bottom:8px" id="pdash-my-students-lbl">👩🏾‍🎓 MES ÉLÈVES</div>
       <div class="student-selector" id="student-selector"></div>
     </div>
 
     <!-- Link new student -->
     <div class="link-form aup" style="animation-delay:.05s">
-      <h3>+ Lier un élève</h3>
+      <h3 id="pdash-link-title">+ Lier un élève</h3>
       <p>Entrez le code de l'élève pour accéder à ses progrès</p>
       <div style="display:flex;gap:8px">
         <input class="field" id="link-code-in" placeholder="Code élève (ex: AMI-7842)" maxlength="8" style="flex:1;text-transform:uppercase"/>
-        <button class="btn btn-blue btn-sm" style="background:var(--blue);color:#fff" onclick="linkStudent()">Lier</button>
+        <button class="btn btn-blue btn-sm" id="pdash-link-btn" style="background:var(--blue);color:#fff" onclick="linkStudent()">Lier</button>
       </div>
     </div>
 
@@ -499,7 +509,7 @@
 
     <!-- Daily report for selected student -->
     <div id="student-report-area" style="display:none">
-      <div class="section-title">📊 RAPPORT DU JOUR – <span id="report-student-name">-</span></div>
+      <div class="section-title">📊 <span id="pdash-daily-report-lbl">RAPPORT DU JOUR</span> – <span id="report-student-name">-</span></div>
       <div class="report-card">
         <div class="report-date">📅 <span id="report-date"></span></div>
         <div class="report-stat-row">
@@ -511,12 +521,12 @@
         <div class="activity-feed" id="activity-feed"></div>
       </div>
 
-      <div class="section-title" style="margin-top:4px">📈 PERFORMANCES PAR MATIÈRE</div>
+      <div class="section-title" id="pdash-perf-lbl" style="margin-top:4px">📈 PERFORMANCES PAR MATIÈRE</div>
       <div class="card">
         <div class="subj-perf-list" id="subj-perf-list"></div>
       </div>
 
-      <div class="section-title" style="margin-top:4px">🇬🇧 PROGRESSION ANGLAIS</div>
+      <div class="section-title" id="pdash-en-lbl" style="margin-top:4px">🇬🇧 PROGRESSION ANGLAIS</div>
       <div class="card">
         <div class="flex-between" style="margin-bottom:10px">
           <div class="text-sm fw-600" id="r-en-stage">Francophone</div>
@@ -526,13 +536,13 @@
         <div style="font-size:12px;color:var(--muted);margin-top:8px" id="r-en-next">Progression en cours...</div>
       </div>
 
-      <div class="section-title" style="margin-top:4px">⚠️ ZONES À RENFORCER</div>
+      <div class="section-title" id="pdash-weak-lbl" style="margin-top:4px">⚠️ ZONES À RENFORCER</div>
       <div id="weak-areas"></div>
       <div id="progress-recommend" style="display:none"></div>
 
       <div style="display:flex;gap:8px;margin-top:4px">
-        <button class="btn btn-jade btn-full" onclick="emailReport()">📧 Envoyer par email</button>
-        <button class="btn btn-ghost" style="flex:.6" onclick="printReport()">🖨️ Rapport PDF</button>
+        <button id="pdash-send-email-btn" class="btn btn-jade btn-full" onclick="emailReport()">📧 Envoyer par email</button>
+        <button id="pdash-print-btn" class="btn btn-ghost" style="flex:.6" onclick="printReport()">🖨️ Rapport PDF</button>
       </div>
     </div>
 
@@ -542,6 +552,7 @@
     <div class="spacer"></div>
   </div>
 </div>
+
 
 <!-- BOTTOM NAV (student) -->
 <nav class="bottom-nav" id="bottom-nav">
@@ -563,7 +574,8 @@
       <button onclick="toggleMoreMenu();goTo('leader')" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">🏆<span style="font-weight:600">Classement</span></button>
       <button onclick="toggleMoreMenu();goTo('calendar')" style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">📅<span style="font-weight:600">Planning</span></button>
       <button onclick="toggleMoreMenu();goTo('msg')" style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">💬<span style="font-weight:600">Messages</span></button>
-      <button onclick="toggleMoreMenu();goTo('settings')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">⚙️<span style="font-weight:600">Réglages</span></button>
+      <button onclick="toggleMoreMenu();goTo('puzzle')" style="background:rgba(251,146,60,0.08);border:1px solid rgba(251,146,60,0.2);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px">🧩<span style="font-weight:600">Puzzle</span></button>
+      <button onclick="toggleMoreMenu();goTo('settings')" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:14px 10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;grid-column:span 2">⚙️<span style="font-weight:600">Réglages</span></button>
     </div>
   </div>
 </div>
@@ -691,9 +703,11 @@
 <div class="screen" id="screen-msg">
   <div class="screen-header">
     <button class="back-btn" onclick="goBack()">←</button>
-    <h2>💬 Messages Tuteur</h2>
+    <h2>💬 Messages</h2>
   </div>
   <div class="screen-body" style="padding:16px;max-width:520px;margin:0 auto;display:flex;flex-direction:column;height:calc(100% - 56px)">
+    <!-- Multi-contact selector: shown when user has multiple contacts -->
+    <div id="msg-contacts" style="display:flex;flex-wrap:wrap;margin-bottom:10px;min-height:0"></div>
     <div id="msg-student-info" style="background:rgba(99,102,241,0.08);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--muted)"></div>
     <div id="msg-thread" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;margin-bottom:14px;min-height:200px;max-height:400px"></div>
     <div style="display:flex;gap:8px">
@@ -702,6 +716,23 @@
     </div>
   </div>
 </div>
+
+<!-- DAILY PUZZLE GAME SCREEN -->
+<div class="screen" id="screen-puzzle">
+  <div class="screen-header">
+    <button class="back-btn" onclick="goBack()">←</button>
+    <h2>🧩 Puzzle du Jour</h2>
+    <button onclick="renderPuzzle()" style="background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer">🔀</button>
+  </div>
+  <div class="screen-body" style="padding:16px;max-width:520px;margin:0 auto">
+    <div id="puzzle-body"></div>
+    <div class="spacer"></div>
+  </div>
+</div>
+
+<!-- EMOJI OVERLAY (motivational reactions) -->
+<div id="emoji-overlay" style="display:none;position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden"></div>
+
 
 <!-- ══════════ ADMIN ══════════ -->
 <div class="screen" id="screen-admin">
