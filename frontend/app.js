@@ -2831,7 +2831,11 @@ function startQuiz(){
   // ── Randomize questions ──────────────────────────────────────────
   let qs = shuffleArray(quiz.questions).map(_randomizeChoices);
   if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
-  else if(currentUser.difficulty==='hard') qs = [...qs,...shuffleArray(qs).slice(0,2)].slice(0,7);
+  else if(currentUser.difficulty==='hard') {
+    // For hard mode, just use all available questions (no duplicates).
+    // The extra difficulty comes from the shuffled, randomised choice order.
+    qs = shuffleArray(quiz.questions).map(_randomizeChoices);
+  }
 
   // ── Prevent same quiz content order twice in a row ───────────────
   // If the same quiz was just taken, use a different shuffle pass so
@@ -4565,7 +4569,7 @@ function _seedRandom(seed) {
 }
 
 function _scramble(word, rng, depth) {
-  if (word.length <= 1) return word + '?'; // guard: 1-char words can't be scrambled
+  if (word.length <= 1) return word; // single-char words cannot be scrambled
   const arr = word.split('');
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
@@ -4573,7 +4577,9 @@ function _scramble(word, rng, depth) {
   }
   const result = arr.join('');
   if (result === word && (depth || 0) < 10) return _scramble(word, rng, (depth || 0) + 1);
-  return result === word ? word.split('').reverse().join('') : result; // fallback
+  // Final fallback: swap first two characters to guarantee a different arrangement
+  if (result === word && arr.length >= 2) { [arr[0], arr[1]] = [arr[1], arr[0]]; return arr.join(''); }
+  return result;
 }
 
 function generateDailyPuzzle(topicKey) {
@@ -4677,7 +4683,7 @@ function renderPuzzle() {
       <div id="puzzle-feedback" style="display:none;text-align:center;font-size:14px;padding:12px;border-radius:10px"></div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--border);margin-top:4px">
-        <div style="font-size:13px;color:var(--muted)">Score du jour: <span style="color:var(--jade);font-weight:700">${_puzzleState.score} pts</span></div>
+        <div style="font-size:13px;color:var(--muted)">Score du jour: <span id="puzzle-score-display" style="color:var(--jade);font-weight:700">${_puzzleState.score} pts</span></div>
         <button onclick="renderPuzzle()" style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">🎲 Nouveau puzzle</button>
       </div>
     </div>`;
@@ -4687,7 +4693,6 @@ function renderPuzzle() {
 
 function selectPuzzleTopic(key) {
   _puzzleState.topic = key;
-  _lastQuizKey = null; // reset quiz anti-repeat when switching puzzle topic
   renderPuzzle();
 }
 
@@ -4722,9 +4727,9 @@ function checkPuzzle() {
     showEmojiReaction('wrong');
   }
 
-  // Update score display
-  const sd = document.querySelector('#puzzle-body [style*="Score du jour"]');
-  if (sd) sd.innerHTML = `Score du jour: <span style="color:var(--jade);font-weight:700">${_puzzleState.score} pts</span>`;
+  // Update score display using stable ID
+  const sd = document.getElementById('puzzle-score-display');
+  if (sd) sd.textContent = `${_puzzleState.score} pts`;
 }
 
 function revealPuzzle() {
