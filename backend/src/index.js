@@ -6,6 +6,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { apiLimiter } = require('./middleware/rateLimit');
+const { startContentRefreshScheduler } = require('./content/refreshService');
 
 const runMigrations = require('./db/migrate');
 const app = express();
@@ -46,6 +47,7 @@ app.use('/api/progress', require('./routes/progress'));
 app.use('/api/messages', require('./routes/messages'));
 app.use('/api/ai',       require('./routes/ai'));
 app.use('/api/admin',    require('./routes/admin'));
+app.use('/api/content',  require('./routes/content'));
 
 // ── Health check ─────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
@@ -58,6 +60,7 @@ runMigrations()
   .then(() => {
     app.listen(config.port, () => {
       console.log(`[STEM Academy API] Listening on port ${config.port} (${config.nodeEnv})`);
+      startContentRefreshScheduler();
     });
   })
   .catch(err => {
