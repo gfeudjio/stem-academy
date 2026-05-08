@@ -24,10 +24,18 @@ const EN_STAGE_LABEL = (level) => {
 const ROLE_CAN_REQUEST_CONTENT_UPDATES = new Set(['tutor', 'admin']);
 
 function sanitizeText(value, max = 280) {
-  return String(value || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const raw = String(value || '');
+  let stripped = '';
+  let inTag = false;
+  for (const ch of raw) {
+    if (ch === '<') { inTag = true; continue; }
+    if (ch === '>') { inTag = false; continue; }
+    if (!inTag) stripped += ch;
+  }
+  return stripped
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ')
     .slice(0, max);
 }
 
@@ -99,28 +107,28 @@ async function fetchSourceMaterial(topic, sourceUrl) {
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(), timeoutMs);
   try {
+    let wikiTopic = topic;
+    let sourceRefUrl = '';
     if (sourceUrl) {
       if (!isAllowedSourceUrl(sourceUrl)) {
         throw new Error('Source URL host not allowed');
       }
-      const response = await fetch(sourceUrl, {
-        signal: abort.signal,
-        headers: { 'User-Agent': 'STEMAcademyContentUpdater/1.0' },
-      });
-      if (!response.ok) {
-        throw new Error(`Source fetch failed (${response.status})`);
+      const parsed = new URL(sourceUrl);
+      sourceRefUrl = parsed.toString();
+      const parsedHost = parsed.hostname.toLowerCase();
+      if (
+        (parsedHost === 'wikipedia.org' || parsedHost.endsWith('.wikipedia.org'))
+        && parsed.pathname.startsWith('/wiki/')
+      ) {
+        try {
+          wikiTopic = decodeURIComponent(parsed.pathname.replace('/wiki/', '').replace(/_/g, ' ')).trim() || topic;
+        } catch {
+          wikiTopic = topic;
+        }
       }
-      const raw = await response.text();
-      const clean = sanitizeText(raw, config.contentMaxSourceChars);
-      if (clean.length < 120) throw new Error('Fetched source is too short');
-      return {
-        sourceUrl,
-        sourceTitle: topic,
-        sourceExcerpt: clean,
-      };
     }
 
-    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(topic)}`;
+    const wikiUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(wikiTopic)}`;
     const response = await fetch(wikiUrl, {
       signal: abort.signal,
       headers: { 'User-Agent': 'STEMAcademyContentUpdater/1.0' },
@@ -132,7 +140,7 @@ async function fetchSourceMaterial(topic, sourceUrl) {
     const extract = sanitizeText(payload.extract || '', config.contentMaxSourceChars);
     if (extract.length < 120) throw new Error('Internet source excerpt is too short');
     return {
-      sourceUrl: payload?.content_urls?.desktop?.page || wikiUrl,
+      sourceUrl: sourceRefUrl || payload?.content_urls?.desktop?.page || wikiUrl,
       sourceTitle: sanitizeText(payload.title || topic, 240),
       sourceExcerpt: extract,
     };
@@ -230,7 +238,7 @@ Sois encourageante, précise, pédagogique. Donne des formules, étapes, exemple
 
 // ── GET /api/ai/content-updates?quizKey=q_xxx ────────────────────────
 
-router.get('/content-updates', [
+router.get('/content-updates', requireAuth, [
   query('quizKey').trim().isLength({ min: 3, max: 80 }).matches(/^[a-z0-9_:-]+$/i),
 ], async (req, res) => {
   const errors = validationResult(req);
@@ -265,7 +273,7 @@ router.get('/content-updates', [
 
 // ── GET /api/ai/content-updates/mine ──────────────────────────────────
 
-router.get('/content-updates/mine', async (req, res) => {
+router.get('/content-updates/mine', requireAuth, async (req, res) => {
   if (!ROLE_CAN_REQUEST_CONTENT_UPDATES.has(req.user.role)) {
     return res.status(403).json({ error: 'Tutor or admin access required' });
   }
@@ -361,7 +369,7 @@ router.post('/content-updates/refresh', aiLimiter, [
 
 // ── GET /api/ai/content-updates/moderation ────────────────────────────
 
-router.get('/content-updates/moderation', async (req, res) => {
+router.get('/content-updates/moderation', requireAuth, async (req, res) => {
   if (req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Admin access required' });
   }
@@ -396,7 +404,7 @@ router.get('/content-updates/moderation', async (req, res) => {
 
 // ── PATCH /api/ai/content-updates/:id/status ──────────────────────────
 
-router.patch('/content-updates/:id/status', [
+router.patch('/content-updates/:id/status', requireAuth, [
   param('id').isUUID(),
   body('status').isIn(['approved', 'rejected']),
 ], async (req, res) => {

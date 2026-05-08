@@ -2755,7 +2755,7 @@ async function startQuiz(){
   else if(currentUser.difficulty==='hard') qs = [...qs,...qs.slice(0,2)].slice(0,7);
   QS = { questions:qs, current:0, answers:[], answered:false, quizKey:lesson.quizKey };
   document.getElementById('quiz-hdr').textContent = supplemental.length > 0
-    ? `${quiz.title} · +${supplemental.length} maj web`
+    ? `${quiz.title} · +${supplemental.length} mises à jour web`
     : quiz.title;
   document.getElementById('qtot').textContent = qs.length;
   renderQ();
@@ -3033,7 +3033,7 @@ async function requestContentRefresh(){
     showToast(data.status === 'approved'
       ? 'Contenu publié depuis internet ✅'
       : 'Contenu importé: validation admin en attente');
-    supplementalQuizCache[quizKey] = null;
+    delete supplementalQuizCache[quizKey];
     loadMyContentUpdates();
   } catch(e){
     showToast('Échec mise à jour contenu', 'warn');
