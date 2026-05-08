@@ -1,8 +1,12 @@
 'use strict';
 
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const db = require('../db');
 const requireAuth = require('../middleware/auth');
+const config = require('../config');
+const { getSourceAllowlist } = require('../content/sourcePolicy');
+const { runContentRefresh } = require('../content/refreshService');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -90,6 +94,41 @@ router.delete('/users/:id', async (req, res) => {
   } catch (err) {
     console.error('DELETE /admin/users error:', err);
     res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+// ── GET /api/admin/content/policy ──────────────────────────────────────
+
+router.get('/content/policy', (_req, res) => {
+  res.json({
+    sources: getSourceAllowlist(),
+    weeklySchedule: {
+      weekday: 'Sunday',
+      time: '11:00 PM',
+      timezone: config.weeklyRefreshTimezoneLabel,
+    },
+  });
+});
+
+// ── POST /api/admin/content/refresh ────────────────────────────────────
+
+router.post('/content/refresh', [
+  body('runType').optional().isIn(['manual', 'scheduled-weekly']),
+  body('importStartedAt').optional().isISO8601(),
+  body('importFinishedAt').optional().isISO8601(),
+  body('addedQuestions').optional().isArray({ max: 1000 }),
+  body('addedMaterials').optional().isArray({ max: 1000 }),
+  body('details').optional().isArray({ max: 200 }),
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid input', details: errors.array() });
+
+  try {
+    const result = await runContentRefresh(req.body || {});
+    res.json(result);
+  } catch (err) {
+    console.error('POST /admin/content/refresh error:', err);
+    res.status(500).json({ error: 'Failed to process content refresh' });
   }
 });
 

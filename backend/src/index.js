@@ -6,6 +6,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const config = require('./config');
 const { apiLimiter } = require('./middleware/rateLimit');
+const { startWeeklyRefreshScheduler } = require('./content/refreshService');
 
 const runMigrations = require('./db/migrate');
 const app = express();
@@ -59,6 +60,7 @@ runMigrations()
     app.listen(config.port, () => {
       console.log(`[STEM Academy API] Listening on port ${config.port} (${config.nodeEnv})`);
     });
+    startWeeklyRefreshScheduler();
   })
   .catch(err => {
     console.error('[STEM Academy API] Migration failed, aborting startup:', err);
