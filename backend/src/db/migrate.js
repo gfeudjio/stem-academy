@@ -20,7 +20,27 @@ async function runMigrations() {
       CHECK (role IN ('student', 'parent', 'tutor', 'admin'));
   `);
 
-  // ── 2. Admin account ─────────────────────────────────────────────────
+  // ── 2. Internet-backed educational content updates tables ───────────
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS content_updates (
+      id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+      quiz_key       VARCHAR(80) NOT NULL,
+      topic          VARCHAR(120) NOT NULL,
+      source_url     TEXT        NOT NULL,
+      source_title   VARCHAR(240) NOT NULL DEFAULT '',
+      source_excerpt TEXT        NOT NULL DEFAULT '',
+      payload        JSONB       NOT NULL,
+      status         VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+      requested_by   UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      approved_by    UUID        REFERENCES users(id) ON DELETE SET NULL,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      published_at   TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_updates_quiz_status ON content_updates(quiz_key, status);
+    CREATE INDEX IF NOT EXISTS idx_content_updates_created_at  ON content_updates(created_at DESC);
+  `);
+
+  // ── 3. Admin account ─────────────────────────────────────────────────
   const adminEmail    = process.env.ADMIN_EMAIL;
   const adminPassword = process.env.ADMIN_PASSWORD;
   const adminFname    = process.env.ADMIN_FNAME || 'Admin';
