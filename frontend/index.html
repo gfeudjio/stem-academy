@@ -454,6 +454,32 @@
       <div class="setting-row"><div><div class="sr-lbl">Difficulté</div><div class="sr-sub" id="s-difficulty">Auto-adaptative</div></div><div class="tag tag-jade">Auto</div></div>
     </div>
 
+    <div id="content-update-tools" style="display:none">
+      <div class="section-title">🌐 MISE À JOUR CONTENU (INTERNET)</div>
+      <div class="setting-group">
+        <div class="setting-row" style="display:block">
+          <div class="sr-lbl">Quiz key ciblé</div>
+          <input class="field" id="content-update-quiz-key" list="content-update-quiz-list" placeholder="ex: q_math_eq" style="margin-top:6px"/>
+          <datalist id="content-update-quiz-list"></datalist>
+        </div>
+        <div class="setting-row" style="display:block">
+          <div class="sr-lbl">Sujet à enrichir</div>
+          <input class="field" id="content-update-topic" placeholder="ex: Newton's laws in daily life" style="margin-top:6px"/>
+        </div>
+        <div class="setting-row" style="display:block">
+          <div class="sr-lbl">URL source (optionnel, HTTPS autorisé)</div>
+          <input class="field" id="content-update-source-url" placeholder="https://..." style="margin-top:6px"/>
+        </div>
+        <div class="setting-row" style="padding:10px 16px">
+          <button id="content-update-btn" class="btn btn-blue btn-sm btn-full" onclick="requestContentRefresh()">🔄 Mettre à jour via internet</button>
+        </div>
+        <div class="setting-row" style="display:block">
+          <div class="sr-lbl">Historique récent</div>
+          <div id="content-update-list" style="margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+
     <button class="btn btn-ghost btn-full" style="color:var(--coral);border-color:rgba(255,107,107,.3)" onclick="doLogout()">🚪 Se déconnecter</button>
     <div style="text-align:center;color:var(--muted);font-size:11px;padding:12px">STEM Academy v3.0 · Cameroun ✈️ USA 🌍</div>
     <div class="spacer"></div>
@@ -733,6 +759,13 @@
         <tbody id="admin-tbody"></tbody>
       </table>
       <div id="admin-empty" style="display:none;text-align:center;padding:32px;color:var(--muted)">Aucun résultat</div>
+    </div>
+
+    <div style="margin-top:18px">
+      <div class="section-title">📚 MODÉRATION CONTENU INTERNET</div>
+      <div class="card" style="padding:14px">
+        <div id="admin-content-updates" class="text-xs text-muted">Chargement…</div>
+      </div>
     </div>
   </div>
 </div>

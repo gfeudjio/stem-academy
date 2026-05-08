@@ -68,6 +68,22 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ── Internet-backed educational content updates ─────────────────────
+CREATE TABLE IF NOT EXISTS content_updates (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  quiz_key      VARCHAR(80) NOT NULL,
+  topic         VARCHAR(120) NOT NULL,
+  source_url    TEXT        NOT NULL,
+  source_title  VARCHAR(240) NOT NULL DEFAULT '',
+  source_excerpt TEXT       NOT NULL DEFAULT '',
+  payload       JSONB       NOT NULL,
+  status        VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  requested_by  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  approved_by   UUID        REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  published_at  TIMESTAMPTZ
+);
+
 -- ── Indexes ──────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_users_email         ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_code          ON users(code);
@@ -76,3 +92,5 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender     ON messages(sender_id);
 CREATE INDEX IF NOT EXISTS idx_messages_recipient  ON messages(recipient_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_content_updates_quiz_status ON content_updates(quiz_key, status);
+CREATE INDEX IF NOT EXISTS idx_content_updates_created_at  ON content_updates(created_at DESC);

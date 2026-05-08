@@ -2725,17 +2725,38 @@ function switchLang(lang){
 // QUIZ ENGINE
 // ══════════════════════════════════════════
 let QS = { questions:[], current:0, answers:[], answered:false };
+const supplementalQuizCache = Object.create(null);
 
-function startQuiz(){
+async function getSupplementalQuestions(quizKey) {
+  if (!quizKey) return [];
+  if (supplementalQuizCache[quizKey]) return supplementalQuizCache[quizKey];
+  try {
+    const res = await _apiCall('GET', `/ai/content-updates?quizKey=${encodeURIComponent(quizKey)}`);
+    if (!res.ok) throw new Error('api-error');
+    const data = await res.json();
+    const questions = (data.updates || [])
+      .flatMap(u => Array.isArray(u.questions) ? u.questions : [])
+      .filter(q => q && q.text && Array.isArray(q.choices) && q.choices.length === 4);
+    supplementalQuizCache[quizKey] = questions;
+    return questions;
+  } catch {
+    return [];
+  }
+}
+
+async function startQuiz(){
   const lesson = LESSONS[currentLesson?.key];
   if(!lesson) return;
   const quiz = QUIZZES[lesson.quizKey];
   if(!quiz){ showToast('Quiz bientôt disponible!','warn'); return; }
-  let qs = [...quiz.questions];
+  const supplemental = await getSupplementalQuestions(lesson.quizKey);
+  let qs = [...quiz.questions, ...supplemental];
   if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
   else if(currentUser.difficulty==='hard') qs = [...qs,...qs.slice(0,2)].slice(0,7);
   QS = { questions:qs, current:0, answers:[], answered:false, quizKey:lesson.quizKey };
-  document.getElementById('quiz-hdr').textContent = quiz.title;
+  document.getElementById('quiz-hdr').textContent = supplemental.length > 0
+    ? `${quiz.title} · +${supplemental.length} maj web`
+    : quiz.title;
   document.getElementById('qtot').textContent = qs.length;
   renderQ();
   goTo('quiz');
@@ -2975,6 +2996,76 @@ function renderSettings(){
   document.getElementById('s-email').textContent = u.parentEmail||'parent@email.com';
   document.getElementById('s-time').textContent = `Tous les jours à ${u.reminderTime||'18:00'}`;
   document.getElementById('s-difficulty').textContent = {'easy':'Facile','normal':'Normal','hard':'Difficile'}[u.difficulty||'normal']||'Auto';
+  const canRefreshContent = u.role === 'tutor' || u.role === 'admin';
+  const tools = document.getElementById('content-update-tools');
+  if (tools) tools.style.display = canRefreshContent ? 'block' : 'none';
+  if (canRefreshContent) {
+    const list = document.getElementById('content-update-quiz-list');
+    if (list && !list.dataset.ready) {
+      const quizKeys = [...new Set(Object.values(LESSONS).map(l => l.quizKey).filter(Boolean))].sort();
+      list.innerHTML = quizKeys.map(k => `<option value="${k}"></option>`).join('');
+      list.dataset.ready = '1';
+    }
+    loadMyContentUpdates();
+  }
+}
+
+async function requestContentRefresh(){
+  if(!currentUser || (currentUser.role!=='tutor' && currentUser.role!=='admin')) return;
+  const quizKey = (document.getElementById('content-update-quiz-key')?.value || '').trim();
+  const topic = (document.getElementById('content-update-topic')?.value || '').trim();
+  const sourceUrl = (document.getElementById('content-update-source-url')?.value || '').trim();
+  if(!quizKey || !topic){
+    showToast('Quiz key + sujet requis', 'warn');
+    return;
+  }
+  const btn = document.getElementById('content-update-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Mise à jour…'; }
+  try{
+    const payload = { quizKey, topic };
+    if(sourceUrl) payload.sourceUrl = sourceUrl;
+    const res = await _apiCall('POST', '/ai/content-updates/refresh', payload);
+    if(!res.ok){
+      const data = await res.json().catch(()=>({}));
+      throw new Error(data.error || 'Refresh failed');
+    }
+    const data = await res.json();
+    showToast(data.status === 'approved'
+      ? 'Contenu publié depuis internet ✅'
+      : 'Contenu importé: validation admin en attente');
+    supplementalQuizCache[quizKey] = null;
+    loadMyContentUpdates();
+  } catch(e){
+    showToast('Échec mise à jour contenu', 'warn');
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = '🔄 Mettre à jour via internet'; }
+  }
+}
+
+async function loadMyContentUpdates(){
+  const out = document.getElementById('content-update-list');
+  if(!out) return;
+  out.innerHTML = '<div class="text-xs text-muted">Chargement…</div>';
+  try{
+    const res = await _apiCall('GET', '/ai/content-updates/mine');
+    if(!res.ok){ out.innerHTML = '<div class="text-xs text-muted">Indisponible</div>'; return; }
+    const data = await res.json();
+    const rows = data.updates || [];
+    if(rows.length===0){
+      out.innerHTML = '<div class="text-xs text-muted">Aucune mise à jour demandée pour le moment.</div>';
+      return;
+    }
+    out.innerHTML = rows.slice(0,8).map(r=>`
+      <div style="display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:12px;font-weight:600">${escHtml(r.quizKey)} · ${escHtml(r.topic)}</div>
+          <div style="font-size:11px;color:var(--muted)">${new Date(r.createdAt).toLocaleString('fr-FR')}</div>
+        </div>
+        <div class="tag ${r.status==='approved'?'tag-jade':r.status==='rejected'?'tag-rose':'tag-amber'}">${r.status}</div>
+      </div>`).join('');
+  } catch {
+    out.innerHTML = '<div class="text-xs text-muted">Erreur réseau</div>';
+  }
 }
 
 // ══════════════════════════════════════════
@@ -4134,6 +4225,7 @@ function renderWeakAreas(){
 // ══════════════════════════════════════════
 let _adminData = { students: [], parents: [], tutors: [] };
 let _adminTab  = 'students';
+let _contentModeration = [];
 
 async function renderAdmin() {
   try {
@@ -4143,6 +4235,7 @@ async function renderAdmin() {
   } catch(e) {
     showToast('Erreur réseau', 'warn'); return;
   }
+  await loadContentModeration();
 
   const s = _adminData.students.length;
   const p = _adminData.parents.length;
@@ -4159,6 +4252,60 @@ async function renderAdmin() {
     </div>`).join('');
 
   adminTab(_adminTab);
+}
+
+async function loadContentModeration() {
+  const wrap = document.getElementById('admin-content-updates');
+  if (!wrap || currentUser?.role !== 'admin') return;
+  try {
+    const res = await _apiCall('GET', '/ai/content-updates/moderation');
+    if (!res.ok) {
+      wrap.innerHTML = '<div class="text-xs text-muted">File de modération indisponible.</div>';
+      return;
+    }
+    const data = await res.json();
+    _contentModeration = data.updates || [];
+    renderContentModeration();
+  } catch {
+    wrap.innerHTML = '<div class="text-xs text-muted">Erreur réseau.</div>';
+  }
+}
+
+function renderContentModeration() {
+  const wrap = document.getElementById('admin-content-updates');
+  if (!wrap) return;
+  if (_contentModeration.length === 0) {
+    wrap.innerHTML = '<div class="text-xs text-muted">Aucune mise à jour de contenu à modérer.</div>';
+    return;
+  }
+  wrap.innerHTML = _contentModeration.slice(0, 12).map(u => `
+    <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${escHtml(u.quizKey)} · ${escHtml(u.topic)}</div>
+        <div style="font-size:11px;color:var(--muted)">Source: <a href="${escHtml(u.sourceUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent)">${escHtml(u.sourceTitle || u.sourceUrl)}</a></div>
+        <div style="font-size:11px;color:var(--muted)">Demandé par ${escHtml(u.requesterName || '—')} · ${new Date(u.createdAt).toLocaleString('fr-FR')}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <div class="tag ${u.status==='approved'?'tag-jade':u.status==='rejected'?'tag-rose':'tag-amber'}">${u.status}</div>
+        ${u.status === 'pending' ? `
+          <button onclick="adminSetContentStatus('${u.id}','approved')" style="background:rgba(6,214,160,.15);border:1px solid rgba(6,214,160,.35);color:#34d399;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer">Approuver</button>
+          <button onclick="adminSetContentStatus('${u.id}','rejected')" style="background:rgba(255,107,107,.12);border:1px solid rgba(255,107,107,.35);color:#f87171;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer">Rejeter</button>
+        ` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+async function adminSetContentStatus(id, status) {
+  try {
+    const res = await _apiCall('PATCH', `/ai/content-updates/${id}/status`, { status });
+    if (!res.ok) { showToast('Échec modération', 'warn'); return; }
+    showToast(status === 'approved' ? 'Contenu publié' : 'Contenu rejeté');
+    Object.keys(supplementalQuizCache).forEach((k) => { delete supplementalQuizCache[k]; });
+    loadContentModeration();
+  } catch {
+    showToast('Erreur réseau', 'warn');
+  }
 }
 
 function adminTab(tab) {
