@@ -5,9 +5,10 @@ const config = require('../config');
 const { getSourcePolicyMatch } = require('./sourcePolicy');
 
 // Requirement is explicit EST (UTC-05:00), not locale-aware Eastern time.
-const EST_OFFSET_MS = 5 * 60 * 60 * 1000;
+const FIXED_EST_OFFSET_MS = 5 * 60 * 60 * 1000;
 const TARGET_WEEKDAY_EST = 0; // Sunday
 const TARGET_HOUR_EST = 23; // 11:00 PM EST
+const MIN_SCHEDULE_DELAY_MS = 60 * 1000;
 
 function toInt(value) {
   const n = Number(value || 0);
@@ -218,7 +219,7 @@ async function runContentRefresh(payload = {}) {
 }
 
 function nextSunday11PmEstFrom(now = new Date()) {
-  const estNow = new Date(now.getTime() - EST_OFFSET_MS);
+  const estNow = new Date(now.getTime() - FIXED_EST_OFFSET_MS);
   const day = estNow.getUTCDay();
   const hour = estNow.getUTCHours();
   const minute = estNow.getUTCMinutes();
@@ -242,7 +243,7 @@ function nextSunday11PmEstFrom(now = new Date()) {
     0,
     0
   );
-  return new Date(targetEstUtcLike + EST_OFFSET_MS);
+  return new Date(targetEstUtcLike + FIXED_EST_OFFSET_MS);
 }
 
 function startWeeklyRefreshScheduler() {
@@ -253,7 +254,7 @@ function startWeeklyRefreshScheduler() {
     const nextRun = nextSunday11PmEstFrom(now);
     const rawDelay = nextRun.getTime() - now.getTime();
     const delay = Math.max(1000, rawDelay);
-    if (rawDelay < 60 * 1000) {
+    if (rawDelay < MIN_SCHEDULE_DELAY_MS) {
       console.warn(`[content-refresh] Suspiciously short schedule delay (${rawDelay} ms), nextRun=${nextRun.toISOString()}`);
     }
 
