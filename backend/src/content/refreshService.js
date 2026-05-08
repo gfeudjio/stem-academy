@@ -7,6 +7,9 @@ const { getApprovedSources } = require('./approvedSources');
 
 let _schedulerStarted = false;
 let _refreshInProgress = false;
+const MAX_QUESTIONS_PER_TEST = 100;
+const MAX_SUMMARY_TOPICS = 20;
+const MAX_ERROR_MESSAGE_LENGTH = 1000;
 
 function toTopic(value) {
   return String(value || '').trim().slice(0, 100);
@@ -35,7 +38,7 @@ function validateIncomingItem(type, item) {
   };
   if (type === 'test') {
     const questionCount = Array.isArray(item.questions) ? item.questions.length : 0;
-    if (questionCount < 1 || questionCount > 100) return null;
+    if (questionCount < 1 || questionCount > MAX_QUESTIONS_PER_TEST) return null;
   }
   return normalized;
 }
@@ -53,6 +56,9 @@ async function fetchSourcePayload(sourceUrl) {
     const parsed = await res.json().catch(() => null);
     if (!parsed || typeof parsed !== 'object') return null;
     return parsed;
+  } catch (err) {
+    console.warn('[content-refresh] source fetch failed:', sourceUrl, err?.name || 'Error');
+    return null;
   } finally {
     clearTimeout(timer);
   }
@@ -124,7 +130,7 @@ function buildInstructorSummary(sourceSummaries) {
     questionsUpdated: totals.questionsUpdated,
     testsUpdated: totals.testsUpdated,
     testsPublished: totals.testsPublished,
-    topics: [...totals.topics].slice(0, 20),
+    topics: [...totals.topics].slice(0, MAX_SUMMARY_TOPICS),
     sources: sourceSummaries,
   };
 }
@@ -177,10 +183,12 @@ async function notifyInstructors(summary) {
            SET email_sent = TRUE
            WHERE id = $1`,
           [instructor.notificationId]
-        ).catch(() => {});
+        ).catch((err) => {
+          console.warn('[content-refresh] failed to mark email_sent:', err?.message || err);
+        });
       }
     } catch {
-      // keep in-app notification even if email delivery fails
+      console.warn('[content-refresh] instructor email webhook delivery failed for', instructor.email);
     }
   }
   return { delivered, queued: instructors.length };
@@ -222,7 +230,7 @@ async function runContentRefresh(trigger = 'manual') {
       `UPDATE content_refresh_runs
        SET status = 'failed', completed_at = NOW(), error_summary = $2
        WHERE id = $1`,
-      [runRow.id, String(err?.message || 'Unknown refresh error').slice(0, 1000)]
+      [runRow.id, String(err?.message || 'Unknown refresh error').slice(0, MAX_ERROR_MESSAGE_LENGTH)]
     ).catch(() => {});
     throw err;
   } finally {

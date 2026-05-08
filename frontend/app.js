@@ -2729,6 +2729,9 @@ function switchLang(lang){
 // QUIZ ENGINE
 // ══════════════════════════════════════════
 let QS = { questions:[], current:0, answers:[], answered:false };
+const ADAPTIVE_WEAK_POINT_WEIGHT = 8;
+const ADAPTIVE_RANDOMIZATION_RANGE = 8;
+const ADAPTIVE_MAX_WEAK_COUNT = 10;
 
 function getSubjectQuizKeys(subjectKey){
   const subj = SUBJECTS[subjectKey];
@@ -2746,7 +2749,8 @@ function chooseAdaptiveQuizKey(preferredQuizKey){
       const runs = (currentUser.quizHistory||[]).filter(q => q.lesson === key);
       const avg = runs.length ? runs.reduce((s,q)=>s+(q.score||0),0)/runs.length : 0;
       const weakCount = Object.values((currentUser.quizWeakPoints||{})[key]||{}).reduce((s,v)=>s+(v||0),0);
-      return { key, score: (100 - avg) + (weakCount * 8) + (Math.random()*8) };
+      const boundedWeakness = Math.min(ADAPTIVE_MAX_WEAK_COUNT, weakCount);
+      return { key, score: (100 - avg) + (boundedWeakness * ADAPTIVE_WEAK_POINT_WEIGHT) + (Math.random()*ADAPTIVE_RANDOMIZATION_RANGE) };
     })
     .sort((a,b)=>b.score-a.score);
   return byWeakness[0]?.key || preferredQuizKey;
@@ -3046,7 +3050,7 @@ async function loadInstructorNotifications(){
 }
 
 function renderInstructorNotificationAlert(alerts){
-  if(currentUser?.role==='tutor' && instructorNotifications.length){
+  if(['tutor','admin'].includes(currentUser?.role) && instructorNotifications.length){
     const latest = instructorNotifications[0];
     alerts.push({
       type:'good',

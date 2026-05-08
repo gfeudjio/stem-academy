@@ -18,7 +18,8 @@ function isApprovedSourceUrl(rawUrl) {
   try {
     const u = new URL(rawUrl);
     if (u.protocol !== 'https:') return false;
-    return OFFICIAL_HOST_ALLOWLIST.has(u.hostname) || u.hostname.endsWith('.gov');
+    const tld = u.hostname.toLowerCase().split('.').pop();
+    return OFFICIAL_HOST_ALLOWLIST.has(u.hostname) || tld === 'gov';
   } catch {
     return false;
   }
