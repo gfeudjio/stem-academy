@@ -161,7 +161,9 @@ async function notifyInstructors(summary) {
     instructor.notificationId = notification?.id || null;
   }
 
-  if (!config.instructorEmailWebhookUrl || instructors.length === 0) return { delivered: 0, queued: instructors.length };
+  if (!config.instructorEmailWebhookUrl || instructors.length === 0) {
+    return { delivered: 0, queued: 0 };
+  }
 
   let delivered = 0;
   for (const instructor of instructors) {
