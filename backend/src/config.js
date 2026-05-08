@@ -18,4 +18,8 @@ module.exports = {
     .map(x => x.trim())
     .filter(Boolean),
   instructorEmailWebhookUrl: process.env.INSTRUCTOR_EMAIL_WEBHOOK_URL || '',
+  // Set WEB_SEARCH_ENABLED=true to allow the AI to look up educational facts
+  // via the DuckDuckGo Instant Answer API. No API key required.
+  // Personal data is NEVER sent to the external search service (see ai.js).
+  webSearchEnabled: process.env.WEB_SEARCH_ENABLED === 'true',
 };
