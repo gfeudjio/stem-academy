@@ -8,6 +8,10 @@ const config = require('../config');
 const { getSourceAllowlist } = require('../content/sourcePolicy');
 const { runContentRefresh } = require('../content/refreshService');
 
+const MAX_QUESTIONS_PER_REFRESH = 1000;
+const MAX_MATERIALS_PER_REFRESH = 1000;
+const MAX_DETAILS_PER_REFRESH = 200;
+
 const router = express.Router();
 router.use(requireAuth);
 
@@ -116,9 +120,9 @@ router.post('/content/refresh', [
   body('runType').optional().isIn(['manual', 'scheduled-weekly']),
   body('importStartedAt').optional().isISO8601(),
   body('importFinishedAt').optional().isISO8601(),
-  body('addedQuestions').optional().isArray({ max: 1000 }),
-  body('addedMaterials').optional().isArray({ max: 1000 }),
-  body('details').optional().isArray({ max: 200 }),
+  body('addedQuestions').optional().isArray({ max: MAX_QUESTIONS_PER_REFRESH }),
+  body('addedMaterials').optional().isArray({ max: MAX_MATERIALS_PER_REFRESH }),
+  body('details').optional().isArray({ max: MAX_DETAILS_PER_REFRESH }),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ error: 'Invalid input', details: errors.array() });

@@ -25,11 +25,9 @@ function hostnameMatches(hostname, pattern) {
   const host = String(hostname || '').toLowerCase();
   const rule = String(pattern || '').toLowerCase();
   if (!host || !rule) return false;
-  if (rule.startsWith('*.')) {
-    const suffix = rule.slice(1);
-    return host.endsWith(suffix);
-  }
-  return host === rule;
+  const escaped = rule.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const wildcardRegex = new RegExp(`^${escaped.replace(/\\\*/g, '.*')}$`);
+  return wildcardRegex.test(host);
 }
 
 function getSourceAllowlist() {

@@ -4,6 +4,7 @@ const db = require('../db');
 const config = require('../config');
 const { getSourcePolicyMatch } = require('./sourcePolicy');
 
+// Requirement is explicit EST (UTC-05:00), not locale-aware Eastern time.
 const EST_OFFSET_MS = 5 * 60 * 60 * 1000;
 const TARGET_WEEKDAY_EST = 0; // Sunday
 const TARGET_HOUR_EST = 23; // 11:00 PM EST
@@ -178,6 +179,10 @@ async function sendInstructorEmailSummary(emailSubject, emailBody, summary) {
     return { delivered: false, reason: 'INSTRUCTOR_EMAIL_WEBHOOK_URL not configured' };
   }
 
+  if (typeof fetch !== 'function') {
+    return { delivered: false, reason: 'Global fetch unavailable in runtime for webhook delivery' };
+  }
+
   const res = await fetch(config.instructorEmailWebhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -190,7 +195,12 @@ async function sendInstructorEmailSummary(emailSubject, emailBody, summary) {
 }
 
 async function runContentRefresh(payload = {}) {
-  const summary = summarizeRefresh(payload);
+  const withTiming = {
+    ...payload,
+    importStartedAt: payload.importStartedAt || new Date().toISOString(),
+    importFinishedAt: payload.importFinishedAt || new Date().toISOString(),
+  };
+  const summary = summarizeRefresh(withTiming);
   const { emailSubject, emailBody, inAppBody } = buildInstructorSummary(summary);
 
   const [inAppDelivered, emailResult] = await Promise.all([
@@ -215,6 +225,7 @@ function nextSunday11PmEstFrom(now = new Date()) {
   const second = estNow.getUTCSeconds();
   const ms = estNow.getUTCMilliseconds();
 
+  // daysUntil=0 is valid when it is Sunday before 11:00 PM EST (run today).
   let daysUntil = (TARGET_WEEKDAY_EST - day + 7) % 7;
   const alreadyPastTargetToday = day === TARGET_WEEKDAY_EST && (
     hour > TARGET_HOUR_EST ||
@@ -240,16 +251,20 @@ function startWeeklyRefreshScheduler() {
   const scheduleNext = () => {
     const now = new Date();
     const nextRun = nextSunday11PmEstFrom(now);
-    const delay = Math.max(1000, nextRun.getTime() - now.getTime());
+    const rawDelay = nextRun.getTime() - now.getTime();
+    const delay = Math.max(1000, rawDelay);
+    if (rawDelay < 60 * 1000) {
+      console.warn(`[content-refresh] Suspiciously short schedule delay (${rawDelay} ms), nextRun=${nextRun.toISOString()}`);
+    }
 
     console.log(`[content-refresh] Next weekly refresh scheduled for ${nextRun.toISOString()} (Sunday 11:00 PM EST)`);
 
     setTimeout(async () => {
+      const startedAt = new Date().toISOString();
       try {
         await runContentRefresh({
           runType: 'scheduled-weekly',
-          importStartedAt: new Date().toISOString(),
-          importFinishedAt: new Date().toISOString(),
+          importStartedAt: startedAt,
           details: ['Automatic weekly refresh executed on Sunday 11:00 PM EST schedule.'],
         });
       } catch (err) {

@@ -1,5 +1,5 @@
-# stem-academy
-This is a project to build a stem website to help Cameroonians learn about the US.
+# STEM Academy
+This is a project to build a STEM website to help Cameroonians learn about the US.
 
 ## Content refresh policy and instructor summaries
 
@@ -11,6 +11,7 @@ Backend support for internet-backed content refresh is implemented with explicit
   - Official/approved curriculum book sources (`openstax.org`, `corestandards.org`)
 - **Weekly refresh schedule**
   - Runs automatically every **Sunday at 11:00 PM EST (UTC-05:00)** via `startWeeklyRefreshScheduler()`.
+  - This is implemented as a fixed EST offset (`UTC-05:00`) year-round to match the explicit requirement.
 - **Instructor update summaries**
   - `runContentRefresh()` builds and sends summaries including:
     - test questions added per subject
