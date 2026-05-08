@@ -27,7 +27,7 @@ const EN_STAGE_LABEL = (level) => {
 // to a safe length before being passed to DuckDuckGo.
 const PII_PATTERNS = [
   /\b[\w.+-]+@[\w-]+\.[\w.]+\b/g,           // email addresses
-  /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/g,    // phone numbers
+  /\+?\d[\d\s().-]{7,}\d/g,                 // phone numbers (local/international)
   /\b\d{9,}\b/g,                             // long numeric IDs
   /\bpassword[:\s=][^\s]+/gi,                // password literals
   /\b(?:ssn|sin|nino)\b/gi,                  // government ID keywords

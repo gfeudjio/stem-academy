@@ -2832,9 +2832,8 @@ function startQuiz(){
   let qs = shuffleArray(quiz.questions).map(_randomizeChoices);
   if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
   else if(currentUser.difficulty==='hard') {
-    // For hard mode, just use all available questions (no duplicates).
-    // The extra difficulty comes from the shuffled, randomised choice order.
-    qs = shuffleArray(quiz.questions).map(_randomizeChoices);
+    // Hard mode keeps the full shuffled set (already assigned to qs above).
+    // No slicing, no duplicate injection.
   }
 
   // ── Prevent same quiz content order twice in a row ───────────────
@@ -4578,7 +4577,11 @@ function _scramble(word, rng, depth) {
   const result = arr.join('');
   if (result === word && (depth || 0) < 10) return _scramble(word, rng, (depth || 0) + 1);
   // Final fallback: swap first two characters to guarantee a different arrangement
-  if (result === word && arr.length >= 2) { [arr[0], arr[1]] = [arr[1], arr[0]]; return arr.join(''); }
+  if (result === word && arr.length >= 2) {
+    const fallback = result.split('');
+    [fallback[0], fallback[1]] = [fallback[1], fallback[0]];
+    return fallback.join('');
+  }
   return result;
 }
 
