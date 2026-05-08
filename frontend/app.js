@@ -2145,6 +2145,9 @@ function shuffleArray(arr) {
 }
 
 // ── Seeded pseudo-random (deterministic per day+subject for puzzles) ──
+// Uses the Knuth multiplicative LCG (linear congruential generator) with
+// multiplier 1664525 and increment 1013904223 — the constants from Numerical
+// Recipes (Knuth vol. 2) that produce a full-period sequence over 2^32.
 function seededRand(seed) {
   let s = seed;
   return function() {
@@ -4521,18 +4524,23 @@ function pickPuzzleSubject() {
   document.getElementById('puzzle-game-area').style.display = 'none';
 }
 
+// Maximum number of past days to scan when computing the puzzle daily streak
+const PUZZLE_STREAK_WINDOW = 30;
+
 function renderPuzzle() {
   const picker = document.getElementById('puzzle-subject-picker');
   const gameArea = document.getElementById('puzzle-game-area');
 
-  // Streak badge
+  // Streak badge — count consecutive days with at least one completed puzzle
   const sb = document.getElementById('puzzle-streak-badge');
   if (sb) {
     const dayNum = _getDayNumber();
     let streak = 0;
     let d = dayNum;
-    while (d > dayNum - 30) {
-      const done = Object.keys(SUBJECTS).some(k => _isPuzzleDoneToday(k, d, 0) || _isPuzzleDoneToday(k, d, 1));
+    while (d > dayNum - PUZZLE_STREAK_WINDOW) {
+      const done = Object.keys(SUBJECTS).some(k =>
+        _isPuzzleDoneToday(k, d, 0) || _isPuzzleDoneToday(k, d, 1)
+      );
       if (!done) break;
       streak++;
       d--;
@@ -4707,7 +4715,10 @@ function showPuzzleHint() {
   showToast('Indice: première lettre révélée (−5 XP)');
   // Auto-place the first letter if not already placed
   if (_puzzleAnswer.length === 0) {
-    const firstTile = _puzzleLetterOrder.findIndex(t => t.letter === puzzle.word[0] && !_puzzleAnswer.some(a => a.origIdx === t.origIdx));
+    const targetLetter = puzzle.word[0];
+    const firstTile = _puzzleLetterOrder.findIndex(t =>
+      t.letter === targetLetter && !_puzzleAnswer.some(a => a.origIdx === t.origIdx)
+    );
     if (firstTile >= 0) addPuzzleLetter(firstTile);
   }
 }
