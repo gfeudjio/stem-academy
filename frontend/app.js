@@ -70,7 +70,89 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// English Level Stages
+// ── Utility: Fisher-Yates shuffle (returns new array) ────────────────
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ── Tutor language preference (EN/FR for tutor-facing UI) ────────────
+// Uses localStorage so it persists across sessions without a server call.
+let tutorLang = localStorage.getItem('tutor_lang_pref') || 'fr';
+
+function setTutorLang(lang) {
+  tutorLang = lang;
+  localStorage.setItem('tutor_lang_pref', lang);
+  renderTutorLangToggle();
+  if (currentUser?.role === 'tutor' || currentUser?.role === 'admin') goParentDash();
+}
+
+function renderTutorLangToggle() {
+  const btn = document.getElementById('tutor-lang-btn');
+  if (!btn) return;
+  btn.textContent = tutorLang === 'fr' ? '🌐 English' : '🌐 Français';
+}
+
+// Translation map for tutor/admin-facing UI strings
+const T = {
+  dashboard_title:   { fr: 'Tableau de bord', en: 'Dashboard' },
+  my_students:       { fr: 'MES ÉLÈVES', en: 'MY STUDENTS' },
+  link_student:      { fr: '+ Lier un élève', en: '+ Link a Student' },
+  link_placeholder:  { fr: 'Code élève (ex: AMI-7842)', en: 'Student code (e.g. AMI-7842)' },
+  link_btn:          { fr: 'Lier', en: 'Link' },
+  daily_report:      { fr: 'RAPPORT DU JOUR', en: 'DAILY REPORT' },
+  perf_by_subj:      { fr: 'PERFORMANCES PAR MATIÈRE', en: 'PERFORMANCE BY SUBJECT' },
+  en_progress:       { fr: 'PROGRESSION ANGLAIS', en: 'ENGLISH PROGRESS' },
+  weak_areas:        { fr: 'ZONES À RENFORCER', en: 'AREAS TO STRENGTHEN' },
+  send_email:        { fr: '📧 Envoyer par email', en: '📧 Send by email' },
+  print_pdf:         { fr: '🖨️ Rapport PDF', en: '🖨️ Print PDF' },
+  logout:            { fr: '🚪 Déconnexion', en: '🚪 Log out' },
+  message_student:   { fr: '💬 Envoyer un message', en: '💬 Send a message' },
+  no_student:        { fr: 'Aucun élève lié', en: 'No linked students' },
+  tutor_label:       { fr: 'Tuteur · Vue élèves', en: 'Tutor · Student view' },
+  admin_label:       { fr: 'Enseignant · Administration', en: 'Teacher · Administration' },
+};
+
+function t(key) {
+  return (T[key] || {})[tutorLang] || (T[key] || {})['fr'] || key;
+}
+
+// ── Motivational emoji reactions ─────────────────────────────────────
+const EMOJI_SETS = {
+  correct: ['🎉','⭐','🌟','✅','🥳','👏','💫','🏆'],
+  wrong:   ['💪','🤔','📚','🔄','💡','🧐','✏️'],
+  complete:['🏆','🎓','🌟','🎉','🚀','💯','🥇'],
+  study:   ['📚','✨','🌟','🎯','💪','🔥'],
+};
+
+function showEmojiReaction(type) {
+  const emojis = EMOJI_SETS[type] || EMOJI_SETS.complete;
+  const container = document.getElementById('emoji-overlay');
+  if (!container) return;
+  container.innerHTML = '';
+  container.style.display = 'block';
+  const count = type === 'complete' ? 12 : 6;
+  for (let i = 0; i < count; i++) {
+    const span = document.createElement('span');
+    span.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    span.style.cssText = `
+      position:absolute;
+      font-size:${24 + Math.random() * 20}px;
+      left:${Math.random() * 90}%;
+      animation:emojiFloat ${1.2 + Math.random() * 1.0}s ease-out forwards;
+      animation-delay:${i * 0.08}s;
+      pointer-events:none;
+    `;
+    container.appendChild(span);
+  }
+  setTimeout(() => { container.style.display = 'none'; container.innerHTML = ''; }, 2500);
+}
+
+
 const EN_STAGES = [
   { min:0,  max:20,  label:'🇫🇷 Francophone',   desc:'Cours principalement en français',  mix:.05 },
   { min:20, max:40,  label:'🌱 Débutant EN',      desc:'Introduction des mots anglais',     mix:.20 },
@@ -2119,82 +2201,6 @@ let obAvatar = '👩🏾‍🔬';
 let obCareer = 'Ingénieure / Engineer';
 let obPhoto = '';
 
-// ── Quiz session: track last quiz key to prevent same test twice in a row ──
-let _lastQuizKey = null;
-
-// ── Puzzle session state ──
-let _puzzleSubject = null;
-let _puzzleLetterOrder = [];
-let _puzzleAnswer = [];
-let _puzzleWord = '';
-let _puzzleHintUsed = false;
-let _puzzleIndex = 0; // which puzzle within the day
-
-// ── Messaging state ──
-let msgTargetId = null;
-let _msgViewMode = 'contacts'; // 'contacts' | 'thread'
-
-// ── Fisher-Yates shuffle (returns new shuffled array) ──
-function shuffleArray(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// ── Seeded pseudo-random (deterministic per day+subject for puzzles) ──
-// Uses the Knuth multiplicative LCG (linear congruential generator) with
-// multiplier 1664525 and increment 1013904223 — the constants from Numerical
-// Recipes (Knuth vol. 2) that produce a full-period sequence over 2^32.
-function seededRand(seed) {
-  let s = seed;
-  return function() {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    return (s >>> 0) / 0x100000000;
-  };
-}
-
-// ── Motivational emoji overlay ──
-const CORRECT_EMOJIS  = ['🎉','🚀','⭐','🏆','💫','✨','👏','🔥'];
-const WRONG_EMOJIS    = ['💪','😊','🌱','💡','🤔','📚','🎯','🌟'];
-const COMPLETE_EMOJIS = ['🎓','🏅','🌈','🎊','🥳','👑','💎','🚀'];
-
-function showEmojiReaction(type) {
-  const overlay = document.getElementById('emoji-overlay');
-  if (!overlay) return;
-  overlay.innerHTML = '';
-  overlay.classList.remove('hidden');
-
-  let emojis, cssClass;
-  if (type === 'correct') {
-    emojis = CORRECT_EMOJIS; cssClass = 'emoji-burst emoji-correct';
-  } else if (type === 'wrong') {
-    emojis = WRONG_EMOJIS; cssClass = 'emoji-float emoji-wrong';
-  } else {
-    emojis = COMPLETE_EMOJIS; cssClass = 'emoji-burst emoji-complete';
-  }
-
-  const emoji = emojis[Math.floor(Math.random() * emojis.length)];
-  const el = document.createElement('div');
-  el.className = cssClass;
-  el.textContent = emoji;
-  overlay.appendChild(el);
-
-  // For 'correct': also scatter a few small emojis
-  if (type === 'correct') {
-    for (let i = 0; i < 4; i++) {
-      const floater = document.createElement('div');
-      floater.style.cssText = `position:fixed;font-size:${22+Math.random()*18}px;left:${15+Math.random()*70}%;top:${20+Math.random()*50}%;animation:emojiFloat ${0.9+Math.random()*0.8}s ease-out ${i*0.12}s both;z-index:9999;pointer-events:none`;
-      floater.textContent = CORRECT_EMOJIS[Math.floor(Math.random() * CORRECT_EMOJIS.length)];
-      overlay.appendChild(floater);
-    }
-  }
-
-  setTimeout(() => { overlay.classList.add('hidden'); overlay.innerHTML = ''; }, 1800);
-}
-
 async function loadDB(){
   // Attempt to restore session via the httpOnly refresh-token cookie
   const restored = await _tryRefresh();
@@ -2428,7 +2434,7 @@ function showScreen(name){
   if(name==='vocab') renderVocab();
   if(name==='leader') renderLeaderboard();
   if(name==='calendar') renderCalendar();
-  if(name==='msg') { _msgViewMode = 'contacts'; renderMessages(); }
+  if(name==='msg') renderMessages();
   if(name==='puzzle') renderPuzzle();
 
   if(name==='home') renderHome();
@@ -2616,14 +2622,6 @@ function renderHome(){
   // Subjects
   renderSubjectGrid();
 
-  // Puzzle status
-  const homePuzzleStatus = document.getElementById('home-puzzle-status');
-  if (homePuzzleStatus) {
-    const dayNum = _getDayNumber();
-    const anyDone = Object.keys(SUBJECTS).some(k => _isPuzzleDoneToday(k, dayNum, 0));
-    homePuzzleStatus.textContent = anyDone ? '✅ Puzzle du jour complété!' : 'Un nouveau défi t\'attend!';
-  }
-
   updateOnline();
 }
 
@@ -2639,11 +2637,9 @@ function renderQuest(){
   }
 
   document.getElementById('quest-items').innerHTML = quests.map((q,i)=>{
-    // Support pre-computed done state (e.g. puzzle done via localStorage)
-    const isDone = done.includes(q.key) || !!q.done;
-    const clickable = q.key === 'q_daily_puzzle' ? `goTo('puzzle')` : `toggleQ(${i},'${q.key}',${q.xp})`;
+    const isDone = done.includes(q.key);
     return `<div class="quest-item">
-      <div class="qcheck${isDone?' done':''}" id="qc${i}" onclick="${clickable}">${isDone?'✓':''}</div>
+      <div class="qcheck${isDone?' done':''}" id="qc${i}" onclick="toggleQ(${i},'${q.key}',${q.xp})">${isDone?'✓':''}</div>
       <div class="qi-text${isDone?' text-muted':''}">${q.text}</div>
       <div class="qi-xp">+${q.xp}</div>
     </div>`;
@@ -2691,12 +2687,7 @@ function buildSmartQuests(){
   // 4. Vocabulary session
   quests.push({ text:`🃏 Entraîne-toi: 10 flashcards vocabulaire STEM`, xp:15, key:'q_vocab_session' });
 
-  // 5. Daily puzzle quest
-  const dayNum = _getDayNumber();
-  const puzzleDone = Object.keys(SUBJECTS).some(k => _isPuzzleDoneToday(k, dayNum, 0));
-  quests.push({ text:`🧩 Résous le puzzle du jour`, xp:30, key:'q_daily_puzzle', done: puzzleDone });
-
-  // 6. Difficulty-adaptive challenge
+  // 5. Difficulty-adaptive challenge
   if(diff==='hard'){
     quests.push({ text:"🔥 Mode Avancé: Score 90%+ sur un quiz aujourd'hui", xp:50, key:'q_challenge_hard' });
   } else if(diff==='easy'){
@@ -2705,7 +2696,7 @@ function buildSmartQuests(){
     quests.push({ text:"⭐ Objectif: Score 80%+ sur un quiz aujourd'hui", xp:35, key:'q_challenge_normal' });
   }
 
-  return quests.slice(0,5);
+  return quests.slice(0,4);
 }
 
 function toggleQ(i, key, xp){
@@ -2802,8 +2793,6 @@ function openLesson(key, chId){
     addXP(25);
     if(!currentUser.badges.includes('first')) unlockBadge('first');
     saveDB();
-    // Celebrate lesson completion with emoji
-    setTimeout(() => showEmojiReaction('complete'), 400);
   }
   goTo('lesson');
 }
@@ -2819,6 +2808,19 @@ function switchLang(lang){
 // QUIZ ENGINE
 // ══════════════════════════════════════════
 let QS = { questions:[], current:0, answers:[], answered:false };
+// Track the last quiz key attempted to prevent the same quiz twice in a row
+let _lastQuizKey = null;
+
+/**
+ * Randomize a single quiz question's choices while keeping the correct answer
+ * pointer consistent. Returns a new question object with shuffled choices.
+ */
+function _randomizeChoices(q) {
+  const indices = shuffleArray([0, 1, 2, 3].slice(0, q.choices.length));
+  const correctText = q.choices[q.correct];
+  const newChoices = indices.map(i => q.choices[i]);
+  return { ...q, choices: newChoices, correct: newChoices.indexOf(correctText) };
+}
 
 function startQuiz(){
   const lesson = LESSONS[currentLesson?.key];
@@ -2826,20 +2828,19 @@ function startQuiz(){
   const quiz = QUIZZES[lesson.quizKey];
   if(!quiz){ showToast('Quiz bientôt disponible!','warn'); return; }
 
-  // Shuffle questions — if same quiz as last time, re-shuffle until order differs
-  let qs = shuffleArray(quiz.questions);
-  if(lesson.quizKey === _lastQuizKey && quiz.questions.length > 1) {
-    // Ensure at least the first question is different
-    let attempts = 0;
-    while(qs[0] === quiz.questions[0] && attempts < 8) {
-      qs = shuffleArray(quiz.questions);
-      attempts++;
-    }
+  // ── Randomize questions ──────────────────────────────────────────
+  let qs = shuffleArray(quiz.questions).map(_randomizeChoices);
+  if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
+
+  // ── Prevent same quiz content order twice in a row ───────────────
+  // If the same quiz was just taken, use a different shuffle pass so
+  // the question order is always different from the previous attempt.
+  if(_lastQuizKey === lesson.quizKey) {
+    // Extra shuffle to guarantee a different ordering
+    qs = shuffleArray(qs).map(_randomizeChoices);
   }
   _lastQuizKey = lesson.quizKey;
 
-  if(currentUser.difficulty==='easy') qs = qs.slice(0,3);
-  else if(currentUser.difficulty==='hard') qs = [...qs,...qs.slice(0,2)].slice(0,7);
   QS = { questions:qs, current:0, answers:[], answered:false, quizKey:lesson.quizKey };
   document.getElementById('quiz-hdr').textContent = quiz.title;
   document.getElementById('qtot').textContent = qs.length;
@@ -2894,8 +2895,7 @@ function answerQ(ci){
   nb.textContent = last?'🏆 Voir les Résultats':'Question Suivante →';
   nb.style.display='flex';
   if(ok) addXP(10);
-
-  // Show motivational emoji reaction
+  // Motivational emoji reaction
   showEmojiReaction(ok ? 'correct' : 'wrong');
 }
 
@@ -2912,6 +2912,9 @@ function showResults(){
   document.getElementById('res-score').textContent = pct+'%';
   document.getElementById('res-label').textContent = `${correct}/${total} correctes`;
   document.getElementById('res-stars').textContent = pct>=80?'⭐⭐⭐':pct>=60?'⭐⭐':'⭐';
+
+  // Motivational emoji burst on quiz completion
+  showEmojiReaction(pct >= 80 ? 'complete' : pct >= 60 ? 'study' : 'wrong');
 
   // Conic ring
   const ring = document.getElementById('score-ring');
@@ -2993,9 +2996,6 @@ function showResults(){
       document.getElementById('res-email-to').textContent = currentUser.parentEmail||'parent@email.com';
     }, 1500);
   }
-
-  // Completion emoji celebration
-  setTimeout(() => showEmojiReaction('complete'), 300);
 
   goTo('results');
 }
@@ -3096,14 +3096,48 @@ let selectedStudent = null;
 
 function goParentDash(){
   const u = currentUser;
-  document.getElementById('parent-role-label').textContent = u.role==='tutor' ? 'Tuteur · Vue élèves' : 'Parent · Vue famille';
-  document.getElementById('p-dash-role').textContent = u.role==='tutor' ? '👩‍🏫 Tuteur' : '👨‍👩‍👧 Parent';
-  document.getElementById('p-dash-name').textContent = `Bonjour, ${u.fname||u.name}!`;
-  document.getElementById('p-dash-sub').textContent = u.role==='tutor'?'Suivez vos élèves':'Suivez les progrès de votre enfant';
+  const isTutor = u.role === 'tutor';
+  const isAdmin  = u.role === 'admin';
+
+  // Apply tutor language to dashboard labels
+  const roleLabel = isAdmin  ? t('admin_label')  :
+                    isTutor  ? t('tutor_label')   : 'Parent · Vue famille';
+  const roleIcon  = isAdmin  ? '👩‍🏫 Enseignant'  :
+                    isTutor  ? '👩‍🏫 Tuteur'       : '👨‍👩‍👧 Parent';
+  const subLabel  = isTutor||isAdmin ? (tutorLang==='en' ? 'Track your students' : 'Suivez vos élèves')
+                                     : (tutorLang==='en' ? "Track your child's progress" : 'Suivez les progrès de votre enfant');
+  const greet     = tutorLang === 'en'
+    ? `Hello, ${u.fname||u.name}!`
+    : `Bonjour, ${u.fname||u.name}!`;
+
+  document.getElementById('parent-role-label').textContent = roleLabel;
+  document.getElementById('p-dash-role').textContent = roleIcon;
+  document.getElementById('p-dash-name').textContent = greet;
+  document.getElementById('p-dash-sub').textContent = subLabel;
 
   const av = document.getElementById('parent-av');
   if(u.photo) av.innerHTML=`<img src="${u.photo}" style="width:100%;height:100%;object-fit:cover"/>`;
   else av.textContent = u.avatar||'👨‍👩‍👧';
+
+  // Translate section headings
+  const set = (id, key) => { const el=document.getElementById(id); if(el) el.textContent=t(key); };
+  set('pdash-my-students-lbl', 'my_students');
+  set('pdash-link-title',      'link_student');
+  set('pdash-link-btn',        'link_btn');
+  set('pdash-send-email-btn',  'send_email');
+  set('pdash-print-btn',       'print_pdf');
+  const linkIn = document.getElementById('link-code-in');
+  if(linkIn) linkIn.placeholder = t('link_placeholder');
+
+  // Language toggle button — only for tutors and admins
+  const langBtn = document.getElementById('tutor-lang-btn');
+  if (langBtn) langBtn.style.display = (isTutor || isAdmin) ? 'block' : 'none';
+  renderTutorLangToggle();
+
+  // Translate "message" button label in student list
+  document.querySelectorAll('.pdash-msg-btn').forEach(b => {
+    b.textContent = t('message_student');
+  });
 
   renderStudentSelector();
   showScreen('parent');
@@ -3259,6 +3293,10 @@ function emailReport(){
 // ══════════════════════════════════════════
 const chatMsgs = [];
 let chatInitialized = false;
+// Web search toggle — when true, the last user message is anonymously
+// looked up via DuckDuckGo to provide ARIA with factual context.
+// Personal data (name, email, etc.) is NEVER sent to the search engine.
+let _ariaWebSearch = false;
 
 function initChat(){
   if(chatInitialized) return;
@@ -3276,13 +3314,17 @@ async function sendChat(){
   const typId = addMsg('bot','...',true);
 
   try{
-    const res = await _apiCall('POST', '/ai/chat', { messages: chatMsgs });
+    const res = await _apiCall('POST', '/ai/chat', {
+      messages: chatMsgs,
+      enableWebSearch: _ariaWebSearch,
+    });
     if(!res.ok) throw new Error('api-error');
     const data = await res.json();
     const reply = data.content || "Désolée, reconnecte-toi à internet!";
+    const webUsed = data.webSearchUsed;
     document.getElementById(typId)?.remove();
     chatMsgs.push({role:'assistant',content:reply});
-    addMsg('bot',reply);
+    addMsg('bot', reply + (webUsed ? '<br/><span style="font-size:10px;opacity:.55">🌐 Réponse enrichie par recherche web</span>' : ''));
   } catch(e){
     document.getElementById(typId)?.remove();
     const fb = offlineFallback(msg);
@@ -4106,188 +4148,168 @@ function renderCalendar(){
 }
 
 // ══════════════════════════════════════════
-// MESSAGING (student ↔ tutor ↔ parent ↔ teacher)
+// DIRECT MESSAGING (student ↔ tutor ↔ teacher/admin)
 // ══════════════════════════════════════════
+let msgTargetId = null;      // currently selected conversation partner
+let _msgContacts = [];       // cached contacts list
 
-function _getMsgContacts() {
-  if (!currentUser) return [];
-  const contacts = [];
-  const seen = new Set();
+/**
+ * Load available contacts for the current user from the API and render
+ * the contact selector. This enables teacher-to-tutor, tutor-to-student,
+ * and student-to-tutor/parent messaging in a unified screen.
+ */
+async function _loadMsgContacts() {
+  try {
+    const res = await _apiCall('GET', '/users/contacts');
+    if (res.ok) _msgContacts = await res.json();
+  } catch {}
 
-  if (currentUser.role === 'student') {
-    // Student: all linked tutors/parents
-    (DB.users || []).forEach(u => {
-      if ((u.role === 'tutor' || u.role === 'parent') &&
-          (u.linkedStudents || []).includes(currentUser.code) &&
-          !seen.has(u.id)) {
-        seen.add(u.id);
-        contacts.push(u);
-      }
-    });
-    // Also from linkedUserProfiles
-    (currentUser.linkedUserProfiles || []).forEach(lp => {
-      if (!seen.has(lp.id)) { seen.add(lp.id); contacts.push(lp); }
-    });
-  } else if (currentUser.role === 'admin') {
-    // Admin/teacher: all users
-    (DB.users || []).forEach(u => {
-      if (u.id !== currentUser.id && !seen.has(u.id)) { seen.add(u.id); contacts.push(u); }
-    });
-  } else {
-    // Tutor / parent: all linked students + any other tutors/parents of same students
-    (currentUser.linkedUserProfiles || []).forEach(lp => {
-      if (!seen.has(lp.id)) { seen.add(lp.id); contacts.push(lp); }
-    });
-    // Also from DB users
-    (currentUser.linkedStudents || []).forEach(code => {
-      const st = (DB.users || []).find(u => u.code === code);
-      if (st && !seen.has(st.id)) { seen.add(st.id); contacts.push(st); }
-    });
+  // Fall back to the in-memory linked user profiles loaded at login time
+  if (!_msgContacts.length) {
+    _msgContacts = (currentUser.linkedUserProfiles || []).map(u => ({
+      id: u.id,
+      fname: u.fname || u.name,
+      name: u.name || u.fname,
+      role: u.role,
+      code: u.code,
+    }));
   }
-  return contacts;
+
+  _renderMsgContactList();
 }
 
-function _getRoleLabel(role) {
-  if (role === 'tutor') return '👩‍🏫 Tuteur';
-  if (role === 'parent') return '👨‍👩‍👧 Parent';
-  if (role === 'admin') return '🛡️ Admin';
-  return '👩🏾‍🔬 Élève';
-}
+function _renderMsgContactList() {
+  const container = document.getElementById('msg-contacts');
+  if (!container) return;
 
-function _getRoleAvatar(role) {
-  if (role === 'tutor') return '👩‍🏫';
-  if (role === 'parent') return '👨‍👩‍👧';
-  if (role === 'admin') return '🛡️';
-  return '👩🏾‍🔬';
-}
-
-async function renderMessages() {
-  if (!currentUser) return;
-  const contacts = _getMsgContacts();
-  document.getElementById('msg-screen-title').textContent = '💬 Messages';
-
-  if (_msgViewMode === 'contacts' || !msgTargetId) {
-    showMsgContacts(contacts);
-  } else {
-    await openMessageThread(msgTargetId);
-  }
-}
-
-function showMsgContacts(contacts) {
-  _msgViewMode = 'contacts';
-  const contactsEl = document.getElementById('msg-contacts-view');
-  const threadEl   = document.getElementById('msg-thread-view');
-  if (contactsEl) contactsEl.style.display = 'block';
-  if (threadEl)   threadEl.style.display   = 'none';
-
-  const list = document.getElementById('msg-contacts-list');
-  const noContacts = document.getElementById('msg-no-contacts');
-  const allContacts = contacts || _getMsgContacts();
-  document.getElementById('msg-screen-title').textContent = '💬 Messages';
-
-  if (!allContacts.length) {
-    if (list) list.innerHTML = '';
-    if (noContacts) noContacts.style.display = 'block';
+  if (_msgContacts.length === 0) {
+    container.innerHTML = '';
     return;
   }
-  if (noContacts) noContacts.style.display = 'none';
-  if (!list) return;
 
-  list.innerHTML = allContacts.map(c => {
-    const name = c.fname || c.name || 'Utilisateur';
-    const roleLabel = _getRoleLabel(c.role);
-    const av = c.avatar || _getRoleAvatar(c.role);
-    return `<div class="msg-contact-item" onclick="openMessageThread('${c.id}')">
-      <div class="msg-contact-avatar">${av}</div>
-      <div style="flex:1">
-        <div class="msg-contact-name">${escHtml(name)}</div>
-        <div class="msg-contact-role">${roleLabel}${c.code ? ' · ' + escHtml(c.code) : ''}</div>
-      </div>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="color:var(--muted)"><path d="M9 18l6-6-6-6"/></svg>
+  const ROLE_ICON = { student:'👩🏾‍🔬', tutor:'👩‍🏫', parent:'👨‍👩‍👧', admin:'🏫' };
+  container.innerHTML = _msgContacts.map(c => {
+    const icon  = ROLE_ICON[c.role] || '👤';
+    const label = c.fname || c.name || c.code || '?';
+    const active = c.id === msgTargetId;
+    return `<div onclick="msgSelectContact('${c.id}')"
+      style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;
+             background:${active ? 'var(--accent)' : 'rgba(255,255,255,0.06)'};
+             border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};
+             cursor:pointer;font-size:12px;white-space:nowrap;transition:all .2s;margin:0 4px 6px 0">
+      ${icon} ${escHtml(label)}
     </div>`;
   }).join('');
 }
 
-async function openMessageThread(contactId) {
-  if (!currentUser || !contactId) return;
-  msgTargetId = contactId;
-  _msgViewMode = 'thread';
+function msgSelectContact(id) {
+  msgTargetId = id;
+  _renderMsgContactList();
+  _fetchAndRenderThread();
+}
 
-  const contact = (DB.users || []).find(u => u.id === contactId) ||
-    (currentUser.linkedUserProfiles || []).find(u => u.id === contactId);
-  const otherName = contact ? (contact.fname || contact.name || 'Utilisateur') : 'Contact';
-  const roleLabel = contact ? _getRoleLabel(contact.role) : '';
+async function _fetchAndRenderThread() {
+  if (!msgTargetId) {
+    document.getElementById('msg-thread').innerHTML = '';
+    const info = document.getElementById('msg-student-info');
+    if (info) info.textContent = _msgContacts.length === 0
+      ? '📭 Aucun contact disponible — liez un élève ou attendez qu\'un tuteur vous contacte.'
+      : '👆 Sélectionnez un contact ci-dessus pour voir la conversation.';
+    return;
+  }
 
-  document.getElementById('msg-screen-title').textContent = `💬 ${escHtml(otherName)}`;
-  const contactsEl = document.getElementById('msg-contacts-view');
-  const threadEl   = document.getElementById('msg-thread-view');
-  if (contactsEl) contactsEl.style.display = 'none';
-  if (threadEl)   { threadEl.style.display = 'flex'; threadEl.style.flexDirection = 'column'; }
-
-  const infoEl = document.getElementById('msg-student-info');
-  if (infoEl) infoEl.textContent = `${roleLabel} · ${escHtml(otherName)}${contact?.code ? ' (' + escHtml(contact.code) + ')' : ''}`;
-
-  // Fetch messages from API
+  const partner = _msgContacts.find(c => c.id === msgTargetId)
+    || (DB.users || []).find(u => u.id === msgTargetId);
+  const otherName = partner ? (partner.fname || partner.name || 'Contact') : 'Contact';
+  const ROLE_LABEL = { student:'élève', tutor:'tuteur', parent:'parent', admin:'enseignant' };
+  const rl = partner ? (ROLE_LABEL[partner.role] || partner.role) : '';
   const threadKey = [currentUser.id, msgTargetId].sort().join('_');
+
+  const info = document.getElementById('msg-student-info');
+  if (info) info.textContent = `💬 Conversation avec ${rl ? rl + ' ' : ''}${otherName}${partner?.code ? ' (' + partner.code + ')' : ''}`;
+
   try {
     const res = await _apiCall('GET', `/messages?with=${msgTargetId}`);
     if (res.ok) {
       const apiMsgs = await res.json();
       if (!DB.messages) DB.messages = {};
-      DB.messages[threadKey] = apiMsgs.map(m => ({ senderId: m.senderId, text: m.text, ts: new Date(m.ts).getTime() }));
+      DB.messages[threadKey] = apiMsgs.map(m => ({
+        senderId: m.senderId, text: m.text, ts: new Date(m.ts).getTime(),
+      }));
     }
   } catch {}
 
-  _renderThread(threadKey);
-}
-
-function _renderThread(threadKey) {
   const messages = DB.messages?.[threadKey] || [];
-  const threadDiv = document.getElementById('msg-thread');
-  if (!threadDiv) return;
-  threadDiv.innerHTML = messages.length === 0
+  document.getElementById('msg-thread').innerHTML = messages.length === 0
     ? `<div style="text-align:center;color:var(--muted);font-size:13px;padding:30px 0">Aucun message — commencez la conversation! 👋</div>`
     : messages.map(m => {
         const isMe = m.senderId === currentUser.id;
         return `<div style="display:flex;${isMe ? 'justify-content:flex-end' : ''}">
-          <div style="max-width:80%;background:${isMe ? 'var(--accent)' : 'rgba(255,255,255,0.07)'};border-radius:${isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};padding:10px 14px">
+          <div style="max-width:80%;background:${isMe ? 'var(--accent)' : 'rgba(255,255,255,0.07)'};
+               border-radius:${isMe ? '16px 16px 4px 16px' : '16px 16px 16px 4px'};padding:10px 14px">
             <div style="font-size:14px;line-height:1.5">${escHtml(m.text)}</div>
-            <div style="font-size:10px;color:${isMe ? 'rgba(255,255,255,0.6)' : 'var(--muted)'};margin-top:4px;text-align:right">${new Date(m.ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</div>
+            <div style="font-size:10px;color:${isMe ? 'rgba(255,255,255,0.6)' : 'var(--muted)'};margin-top:4px;text-align:right">
+              ${new Date(m.ts).toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' })}
+            </div>
           </div>
         </div>`;
       }).join('');
-  setTimeout(() => { threadDiv.scrollTop = threadDiv.scrollHeight; }, 50);
+
+  setTimeout(() => {
+    const t = document.getElementById('msg-thread');
+    if (t) t.scrollTop = t.scrollHeight;
+  }, 50);
 }
 
-function msgHandleBack() {
-  if (_msgViewMode === 'thread') {
-    showMsgContacts();
-  } else {
-    goBack();
+async function renderMessages(){
+  if (!currentUser) return;
+
+  // Auto-select default contact if none chosen yet
+  if (!msgTargetId) {
+    // Student: prefer tutor/parent
+    if (currentUser.role === 'student') {
+      const linked = (DB.users || []).find(u =>
+        (u.role === 'tutor' || u.role === 'parent') &&
+        (u.linkedStudents || []).includes(currentUser.code)
+      );
+      if (linked) msgTargetId = linked.id;
+    } else {
+      // Guardian/admin: default to first linked student
+      const linkedCodes = currentUser.linkedStudents || [];
+      if (linkedCodes.length > 0) {
+        const st = (DB.users || []).find(u => u.code === linkedCodes[0]);
+        if (st) msgTargetId = st.id;
+      }
+    }
   }
+
+  await _loadMsgContacts();
+  await _fetchAndRenderThread();
 }
 
-async function sendMessage() {
+
+async function sendMessage(){
   const inp = document.getElementById('msg-input');
   const text = inp?.value?.trim();
-  if (!text || !currentUser || !msgTargetId) { showToast('Aucun destinataire sélectionné', 'warn'); return; }
+  if(!text || !currentUser || !msgTargetId){ showToast('Aucun destinataire lié', 'warn'); return; }
   inp.value = '';
   try {
     const res = await _apiCall('POST', '/messages', { recipientId: msgTargetId, text });
-    if (!res.ok) { showToast('Erreur envoi message', 'warn'); return; }
+    if(!res.ok){ showToast('Erreur envoi message', 'warn'); return; }
     const msg = await res.json();
+    // Optimistically add to local cache
     const threadKey = [currentUser.id, msgTargetId].sort().join('_');
-    if (!DB.messages) DB.messages = {};
-    if (!DB.messages[threadKey]) DB.messages[threadKey] = [];
+    if(!DB.messages) DB.messages = {};
+    if(!DB.messages[threadKey]) DB.messages[threadKey] = [];
     DB.messages[threadKey].push({ senderId: currentUser.id, text, ts: new Date(msg.ts).getTime() || Date.now() });
-    _renderThread(threadKey);
-  } catch {
+    _fetchAndRenderThread();
+  } catch(e) {
     showToast('Erreur réseau', 'warn');
   }
 }
 
-(document.getElementById('msg-input') || {}).addEventListener?.('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+(document.getElementById('msg-input')||{}).addEventListener?.('keydown', e=>{
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); }
 });
 
 function getRecommendedNext(){
@@ -4457,275 +4479,291 @@ async function adminDeleteUser(id, name) {
 }
 
 // ══════════════════════════════════════════
-// DAILY PUZZLE ENGINE
+// DAILY TOPIC PUZZLE GAME
 // ══════════════════════════════════════════
+// Each day (keyed by today's date string + topic), a fresh puzzle is generated.
+// Types rotate daily: word-scramble, math-challenge, fill-in-the-blank.
+// No server needed — puzzles are generated deterministically from seed data.
 
-// Subject → related VOCAB keywords for subject-filtered puzzles
-const PUZZLE_SUBJECT_KEYS = {
-  math:    ['Coefficient','Équation','Vecteur','Probabilité','Statistique','Trigonométrie','Discriminant','Logarithme','Algèbre'],
-  phys:    ['Accélération','Vitesse','Force','Inertie','Énergie','Puissance','Gravité','Pression','Circuit'],
-  chem:    ['Acide','Atome','Molécule','Isotope','Électron','Proton','Réaction','Oxydation','Enzyme'],
-  ela:     ['Grammaire','Littérature','Narrateur','Métaphore','Thème','Analyse','Argument','Paragraphe'],
-  sci:     ['Cellule','Chromosome','Photosynthèse','Évolution','Génétique','Écosystème','Biome','ADN'],
-  earth:   ['Atmosphère','Latitude','Longitude','Tectonique','Volcan','Sismique','Orbite','Écosystème'],
-  ushist:  ['Démocratie','Constitution','Congrès','Révolution','Droits','Liberté','Suffrage','Immigration'],
-  civics:  ['Démocratie','Constitution','Gouvernement','Vote','Citoyen','Liberté','Droits','Congrès'],
-  cs:      ['Algorithme','Variable','Boucle','Fonction','Réseau','Données','Programme','Intelligence'],
-  health:  ['Nutrition','Métabolisme','Immunité','Vaccination','Anxiété','Diète','Hormones','Santé'],
-  finance: ['Budget','Épargne','Investissement','Taxe','Capital','Intérêt','Bourse','Revenu'],
-  french:  ['Grammaire','Littérature','Pronom','Conjugaison','Adverbe','Récit','Poème','Subjunctif'],
+const PUZZLE_TOPICS = [
+  {
+    key:'math', label:'Mathématiques', icon:'🧮',
+    words:['équation','fraction','polynôme','dérivée','vecteur','intégrale','logarithme','trigonométrie'],
+    math:[
+      { q:'Résoudre: 3x + 6 = 21', a:'5', hint:'Isole x: 3x=15' },
+      { q:'Calculer: 5² − 3 × 4', a:'13', hint:'PEMDAS: 25-12' },
+      { q:'Si f(x)=2x+3, trouver f(4)', a:'11', hint:'Substitue x=4' },
+      { q:'Périmètre d\'un carré de côté 7 cm?', a:'28', hint:'P=4×côté' },
+    ],
+    fill:[
+      { q:'Un polynôme du 2ème degré s\'appelle une ___', a:'trinôme', alt:['parabole','quadratique'] },
+      { q:'Le symbole Δ dans ax²+bx+c=0 est le ___', a:'discriminant', alt:['delta','discriminant'] },
+    ],
+  },
+  {
+    key:'phys', label:'Physique', icon:'⚡',
+    words:['inertie','vitesse','accélération','friction','énergie','momentum','gravité','optique'],
+    math:[
+      { q:'F=ma. Si m=5kg et a=3m/s², F=?', a:'15', hint:'F=5×3' },
+      { q:'v=d/t. Si d=120m et t=4s, v=?', a:'30', hint:'v=120/4' },
+      { q:'E_c = ½mv². Si m=2kg et v=6m/s, E_c=?', a:'36', hint:'E_c=½×2×36' },
+    ],
+    fill:[
+      { q:'La 2ème loi de Newton: ∑F = m × ___', a:'a', alt:['a','accélération'] },
+      { q:'L\'unité de force est le ___', a:'newton', alt:['newton','N'] },
+    ],
+  },
+  {
+    key:'ela', label:'English / ELA', icon:'📖',
+    words:['hypothesis','photosynthesis','democracy','coefficient','revolution','equilibrium'],
+    math:[
+      { q:'How many syllables in "hypothesis"?', a:'4', hint:'hy-poth-e-sis' },
+      { q:'How many letters in "photosynthesis"?', a:'14', hint:'Count them!' },
+    ],
+    fill:[
+      { q:'The ___ idea is the main point of the paragraph.', a:'main', alt:['main','central'] },
+      { q:'An ___ is a word that modifies a noun.', a:'adjective', alt:['adjective'] },
+      { q:'The ___ of a story is the central message or lesson.', a:'theme', alt:['theme'] },
+    ],
+  },
+  {
+    key:'cs', label:'Informatique', icon:'💻',
+    words:['algorithme','boucle','variable','fonction','tableau','récursion','binaire','hexadécimal'],
+    math:[
+      { q:'print(2 ** 8) en Python donne?', a:'256', hint:'2^8=256' },
+      { q:'len([1,2,3,4,5]) en Python?', a:'5', hint:'Nombre d\'éléments' },
+      { q:'15 % 4 en Python (modulo)?', a:'3', hint:'15=4×3+3' },
+    ],
+    fill:[
+      { q:'En Python, la structure for i in ___(5) itère 5 fois.', a:'range', alt:['range'] },
+      { q:'HTTPS = HTTP ___ (sécurisé / secure)', a:'Secure', alt:['secure','Secure','sécurisé'] },
+    ],
+  },
+];
+
+const PUZZLE_TYPES = ['scramble', 'math', 'fill'];
+
+let _puzzleState = {
+  topic: null,
+  type: null,
+  puzzle: null,
+  userInput: '',
+  revealed: false,
+  score: 0,
+  streak: 0,
+  dateKey: '',
 };
 
-// Get VOCAB entries that belong to a subject (or all if no match)
-function _getPuzzleVocabForSubject(subjKey) {
-  const keywords = PUZZLE_SUBJECT_KEYS[subjKey];
-  if (!keywords || !keywords.length) return VOCAB;
-  const lc = keywords.map(k => k.toLowerCase());
-  const filtered = VOCAB.filter(v =>
-    lc.some(k => v.fr.toLowerCase().includes(k) || v.en.toLowerCase().includes(k) || v.hint.toLowerCase().includes(k))
-  );
-  return filtered.length >= 3 ? filtered : VOCAB;
-}
-
-// Deterministic puzzle index for the day
-function _getDayNumber() {
-  return Math.floor(Date.now() / 86400000);
-}
-
-// Generate the puzzle word+hint for given day+subject+index
-function _generatePuzzle(subjKey, dayIndex) {
-  const pool = _getPuzzleVocabForSubject(subjKey);
-  const rand = seededRand((_getDayNumber() + dayIndex) * 31337 + (subjKey ? subjKey.charCodeAt(0) * 7 : 1));
-  const idx = Math.floor(rand() * pool.length);
-  const entry = pool[idx];
-  return {
-    word: entry.en.toUpperCase().replace(/[^A-Z]/g, ''),
-    hint: entry.hint || entry.fr,
-    fr: entry.fr,
-    en: entry.en,
+/** Seeded pseudo-random (deterministic per date+topic) */
+function _seedRandom(seed) {
+  let s = Array.from(String(seed)).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  return () => {
+    s = ((s * 1664525) + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
   };
 }
 
-// Check if puzzle already solved today
-function _getPuzzleStorageKey(subjKey, dayNum, idx) {
-  return `puzzle_done_${subjKey}_${dayNum}_${idx}`;
+function _scramble(word, rng, depth) {
+  if (word.length <= 1) return word; // single-char words cannot be scrambled
+  const arr = word.split('');
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  const result = arr.join('');
+  if (result === word && (depth || 0) < 10) return _scramble(word, rng, (depth || 0) + 1);
+  // Final fallback: swap first two characters to guarantee a different arrangement
+  if (result === word && arr.length >= 2) {
+    const fallback = result.split('');
+    [fallback[0], fallback[1]] = [fallback[1], fallback[0]];
+    const swapped = fallback.join('');
+    return swapped === word ? word : swapped;
+  }
+  return result;
 }
 
-function _isPuzzleDoneToday(subjKey, dayNum, idx) {
-  return localStorage.getItem(_getPuzzleStorageKey(subjKey, dayNum, idx)) === '1';
-}
+function generateDailyPuzzle(topicKey) {
+  const today = new Date().toDateString();
+  const dateKey = today + '|' + topicKey;
+  const rng = _seedRandom(dateKey);
 
-function _markPuzzleDone(subjKey, dayNum, idx) {
-  localStorage.setItem(_getPuzzleStorageKey(subjKey, dayNum, idx), '1');
-}
+  const topicData = PUZZLE_TOPICS.find(t => t.key === topicKey) || PUZZLE_TOPICS[0];
+  const typeIdx = Math.floor(rng() * PUZZLE_TYPES.length);
+  const type = PUZZLE_TYPES[typeIdx];
 
-function pickPuzzleSubject() {
-  document.getElementById('puzzle-subject-picker').style.display = 'block';
-  document.getElementById('puzzle-game-area').style.display = 'none';
-}
+  let puzzle;
+  if (type === 'scramble') {
+    const word = topicData.words[Math.floor(rng() * topicData.words.length)];
+    puzzle = { word, scrambled: _scramble(word, rng) };
+  } else if (type === 'math') {
+    const pool = topicData.math || PUZZLE_TOPICS[0].math;
+    puzzle = pool[Math.floor(rng() * pool.length)];
+  } else {
+    const pool = topicData.fill || PUZZLE_TOPICS[2].fill;
+    puzzle = pool[Math.floor(rng() * pool.length)];
+  }
 
-// Maximum number of past days to scan when computing the puzzle daily streak
-const PUZZLE_STREAK_WINDOW = 30;
+  return { type, topic: topicData, puzzle, dateKey };
+}
 
 function renderPuzzle() {
-  const picker = document.getElementById('puzzle-subject-picker');
-  const gameArea = document.getElementById('puzzle-game-area');
+  const topicKey = _puzzleState.topic || 'math';
+  const { type, topic, puzzle, dateKey } = generateDailyPuzzle(topicKey);
 
-  // Streak badge — count consecutive days with at least one completed puzzle
-  const sb = document.getElementById('puzzle-streak-badge');
-  if (sb) {
-    const dayNum = _getDayNumber();
-    let streak = 0;
-    let d = dayNum;
-    while (d > dayNum - PUZZLE_STREAK_WINDOW) {
-      const done = Object.keys(SUBJECTS).some(k =>
-        _isPuzzleDoneToday(k, d, 0) || _isPuzzleDoneToday(k, d, 1)
-      );
-      if (!done) break;
-      streak++;
-      d--;
-    }
-    sb.textContent = streak > 0 ? `🔥 ${streak} jour${streak > 1 ? 's' : ''}` : '';
-    sb.style.display = streak > 0 ? 'inline-flex' : 'none';
+  // Only reset score tracking when the day changes
+  if (_puzzleState.dateKey !== dateKey) {
+    _puzzleState.score   = 0;
+    _puzzleState.streak  = 0;
+    _puzzleState.dateKey = dateKey;
+  }
+  _puzzleState.type     = type;
+  _puzzleState.puzzle   = puzzle;
+  _puzzleState.revealed = false;
+  _puzzleState.userInput = '';
+
+  const container = document.getElementById('puzzle-body');
+  if (!container) return;
+
+  // Topic selector
+  const topicBtns = PUZZLE_TOPICS.map(t => `
+    <button onclick="selectPuzzleTopic('${t.key}')"
+      style="background:${t.key===topicKey?'var(--accent)':'rgba(255,255,255,0.06)'};
+             border:1px solid ${t.key===topicKey?'var(--accent)':'var(--border)'};
+             color:var(--text);border-radius:20px;padding:6px 14px;font-size:12px;
+             cursor:pointer;margin:0 4px 6px 0">
+      ${t.icon} ${t.label}
+    </button>`).join('');
+
+  let puzzleHtml = '';
+  if (type === 'scramble') {
+    puzzleHtml = `
+      <div style="text-align:center;margin:20px 0">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">🔀 Remets les lettres dans l'ordre / Unscramble the word</div>
+        <div style="font-size:36px;font-weight:700;letter-spacing:6px;color:var(--amber);font-family:monospace">${puzzle.scrambled.toUpperCase()}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:8px">Matière: ${topic.icon} ${topic.label}</div>
+      </div>`;
+  } else if (type === 'math') {
+    puzzleHtml = `
+      <div style="text-align:center;margin:20px 0">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">🧩 Résoudre / Solve</div>
+        <div style="font-size:20px;font-weight:700;color:var(--text);background:rgba(99,102,241,.1);border:1px solid var(--accent);border-radius:12px;padding:16px 20px">${escHtml(puzzle.q)}</div>
+      </div>`;
+  } else {
+    const blank = puzzle.q.replace('___', '<span style="display:inline-block;min-width:80px;border-bottom:2px solid var(--accent);">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>');
+    puzzleHtml = `
+      <div style="text-align:center;margin:20px 0">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">✏️ Complète la phrase / Fill in the blank</div>
+        <div style="font-size:17px;font-weight:600;color:var(--text);line-height:1.7">${blank}</div>
+      </div>`;
   }
 
-  if (!_puzzleSubject) {
-    // Show subject picker
-    if (picker) picker.style.display = 'block';
-    if (gameArea) gameArea.style.display = 'none';
-    _renderPuzzleSubjectList();
-    return;
-  }
+  container.innerHTML = `
+    <div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:4px">${topicBtns}</div>
 
-  // Has subject — show game
-  if (picker) picker.style.display = 'none';
-  if (gameArea) gameArea.style.display = 'block';
-  _startPuzzleGame(_puzzleSubject, _puzzleIndex);
-}
-
-function _renderPuzzleSubjectList() {
-  const list = document.getElementById('puzzle-subject-list');
-  if (!list) return;
-  const dayNum = _getDayNumber();
-  list.innerHTML = Object.entries(SUBJECTS).slice(0, 12).map(([key, subj]) => {
-    const done = _isPuzzleDoneToday(key, dayNum, 0);
-    return `<button class="puzzle-subject-btn" onclick="selectPuzzleSubject('${key}')">
-      <span style="font-size:24px">${subj.icon}</span>
-      <div style="flex:1">
-        <div style="font-weight:600;font-size:13px">${subj.name}</div>
-        <div style="font-size:11px;color:var(--muted)">${subj.nameEn}</div>
+    <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.2);border-radius:14px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:12px;color:var(--muted)">🗓️ Puzzle du jour · ${new Date().toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'})}</div>
+        <div style="font-size:12px;color:var(--amber);font-weight:600">🔥 ${_puzzleState.streak} en série</div>
       </div>
-      ${done ? '<span style="color:var(--mint);font-size:14px" title="Complété aujourd\'hui">✅</span>' : '<span style="color:var(--muted);font-size:12px">→</span>'}
-    </button>`;
-  }).join('');
+      ${puzzleHtml}
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <input id="puzzle-input" class="field" type="text" placeholder="Ta réponse / Your answer…"
+        value="${escHtml(_puzzleState.userInput)}"
+        onkeydown="if(event.key==='Enter')checkPuzzle()"
+        oninput="_puzzleState.userInput=this.value"
+        style="text-align:center;font-size:18px;letter-spacing:2px"/>
+
+      <div style="display:flex;gap:8px">
+        <button onclick="checkPuzzle()" style="flex:2;background:var(--accent);border:none;color:#fff;border-radius:10px;padding:12px;font-size:15px;font-weight:600;cursor:pointer">✅ Vérifier</button>
+        <button onclick="revealPuzzle()" style="flex:1;background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:12px;font-size:13px;cursor:pointer">💡 Réponse</button>
+      </div>
+
+      <div id="puzzle-feedback" style="display:none;text-align:center;font-size:14px;padding:12px;border-radius:10px"></div>
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--border);margin-top:4px">
+        <div style="font-size:13px;color:var(--muted)">Score du jour: <span id="puzzle-score-display" style="color:var(--jade);font-weight:700">${_puzzleState.score} pts</span></div>
+        <button onclick="renderPuzzle()" style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;border-radius:8px;padding:6px 14px;font-size:12px;cursor:pointer">🎲 Nouveau puzzle</button>
+      </div>
+    </div>`;
+
+  setTimeout(() => document.getElementById('puzzle-input')?.focus(), 100);
 }
 
-function selectPuzzleSubject(subjKey) {
-  _puzzleSubject = subjKey;
-  _puzzleIndex = 0;
+function selectPuzzleTopic(key) {
+  _puzzleState.topic = key;
   renderPuzzle();
 }
 
-function _startPuzzleGame(subjKey, idx) {
-  const dayNum = _getDayNumber();
-  const subj = SUBJECTS[subjKey];
-  const puzzle = _generatePuzzle(subjKey, idx);
+function checkPuzzle() {
+  const fb = document.getElementById('puzzle-feedback');
+  if (!fb || _puzzleState.revealed) return;
 
-  // Update labels
-  const subjLabel = document.getElementById('puzzle-subject-label');
-  if (subjLabel) subjLabel.textContent = `${subj?.icon || '🧩'} ${subj?.name || subjKey}`;
-  const dayLabel = document.getElementById('puzzle-day-label');
-  if (dayLabel) {
-    const d = new Date();
-    dayLabel.textContent = `Puzzle du ${d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}`;
-  }
-  const typeLabel = document.getElementById('puzzle-type-label');
-  if (typeLabel) typeLabel.textContent = '🔤 Reconstitue le mot en anglais';
+  const raw = (document.getElementById('puzzle-input')?.value || '').trim().toLowerCase();
+  const { type, puzzle } = _puzzleState;
+  let correct = false;
 
-  // Scramble area
-  document.getElementById('puzzle-scramble').style.display = 'block';
-  document.getElementById('puzzle-success').style.display = 'none';
-  document.getElementById('puzzle-done-today').style.display = 'none';
-  document.getElementById('puzzle-feedback').textContent = '';
-  document.getElementById('puzzle-feedback').style.color = 'var(--muted)';
-
-  const hintBox = document.getElementById('puzzle-hint-text');
-  if (hintBox) hintBox.textContent = `💡 Définition: ${puzzle.hint}`;
-  hintBox.style.display = 'block';
-
-  // Reset state
-  _puzzleWord = puzzle.word;
-  _puzzleAnswer = [];
-  _puzzleHintUsed = false;
-
-  // Create shuffled letter tiles (seeded so they look scrambled but consistent within the session)
-  const letters = puzzle.word.split('');
-  // Just shuffle visually with Math.random (not seeded — different each session)
-  _puzzleLetterOrder = shuffleArray(letters.map((l, i) => ({ letter: l, origIdx: i })));
-
-  _renderPuzzleTiles();
-
-  // Check if already done
-  if (_isPuzzleDoneToday(subjKey, dayNum, idx)) {
-    document.getElementById('puzzle-scramble').style.display = 'none';
-    document.getElementById('puzzle-done-today').style.display = 'block';
-  }
-}
-
-function _renderPuzzleTiles() {
-  const answerRow = document.getElementById('puzzle-answer-slots');
-  const lettersRow = document.getElementById('puzzle-letter-tiles');
-  if (!answerRow || !lettersRow) return;
-
-  // Answer slots (what user has built)
-  answerRow.innerHTML = _puzzleAnswer.map((item, i) =>
-    `<div class="puzzle-tile answer-slot" onclick="removePuzzleLetter(${i})" title="Cliquer pour retirer">${item.letter}</div>`
-  ).join('');
-
-  // Available letter tiles
-  lettersRow.innerHTML = _puzzleLetterOrder.map((item, i) => {
-    const used = _puzzleAnswer.some(a => a.origIdx === item.origIdx);
-    return `<div class="puzzle-tile ${used ? 'used' : ''}" onclick="${used ? '' : `addPuzzleLetter(${i})`}">${item.letter}</div>`;
-  }).join('');
-}
-
-function addPuzzleLetter(tileIdx) {
-  const item = _puzzleLetterOrder[tileIdx];
-  if (!item) return;
-  if (_puzzleAnswer.some(a => a.origIdx === item.origIdx)) return; // already used
-  _puzzleAnswer.push({ letter: item.letter, origIdx: item.origIdx });
-  _renderPuzzleTiles();
-}
-
-function removePuzzleLetter(ansIdx) {
-  _puzzleAnswer.splice(ansIdx, 1);
-  _renderPuzzleTiles();
-}
-
-function clearPuzzleAnswer() {
-  _puzzleAnswer = [];
-  _renderPuzzleTiles();
-  document.getElementById('puzzle-feedback').textContent = '';
-}
-
-function checkPuzzleAnswer() {
-  const formed = _puzzleAnswer.map(a => a.letter).join('');
-  const feedback = document.getElementById('puzzle-feedback');
-  if (formed.length < _puzzleWord.length) {
-    feedback.textContent = 'Place toutes les lettres!';
-    feedback.style.color = 'var(--amber)';
-    return;
-  }
-  if (formed === _puzzleWord) {
-    // Correct!
-    const xpBonus = _puzzleHintUsed ? 15 : 30;
-    document.getElementById('puzzle-scramble').style.display = 'none';
-    document.getElementById('puzzle-success').style.display = 'block';
-    const puzzle = _generatePuzzle(_puzzleSubject, _puzzleIndex);
-    document.getElementById('puzzle-success-word').textContent = puzzle.en;
-    document.getElementById('puzzle-success-info').textContent = puzzle.fr + ' — ' + puzzle.hint;
-    document.getElementById('puzzle-xp-earned').textContent = `+${xpBonus} XP Gagné!`;
-    const emojis = ['🎉','🥳','🎊','🏆','🌟','⭐','💎','🚀'];
-    document.getElementById('puzzle-success-emoji').textContent = emojis[Math.floor(Math.random() * emojis.length)];
-    _markPuzzleDone(_puzzleSubject, _getDayNumber(), _puzzleIndex);
-    addXP(xpBonus);
-    unlockBadge('first');
-    showEmojiReaction('complete');
-    // Update home puzzle status
-    const homePuzzleStatus = document.getElementById('home-puzzle-status');
-    if (homePuzzleStatus) homePuzzleStatus.textContent = '✅ Puzzle du jour complété!';
+  if (type === 'scramble') {
+    correct = raw === puzzle.word.toLowerCase();
+  } else if (type === 'math') {
+    correct = raw === String(puzzle.a).toLowerCase();
   } else {
-    feedback.textContent = '❌ Pas tout à fait... Réessaie!';
-    feedback.style.color = 'var(--coral)';
+    const alts = (puzzle.alt || []).map(a => a.toLowerCase());
+    correct = raw === puzzle.a.toLowerCase() || alts.includes(raw);
+  }
+
+  if (correct) {
+    _puzzleState.score  += 10;
+    _puzzleState.streak += 1;
+    fb.style.cssText = 'display:block;text-align:center;font-size:14px;padding:12px;border-radius:10px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.3);color:#34d399';
+    fb.innerHTML = `🎉 Bravo! C'est correct!${type !== 'scramble' && puzzle.hint ? '<br/><span style="font-size:12px;opacity:.8">💡 ' + escHtml(puzzle.hint) + '</span>' : ''}`;
+    showEmojiReaction('correct');
+    if (currentUser) addXP(15);
+  } else {
+    _puzzleState.streak = 0;
+    fb.style.cssText = 'display:block;text-align:center;font-size:14px;padding:12px;border-radius:10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171';
+    fb.innerHTML = `❌ Pas tout à fait — essaie encore!${type !== 'scramble' && puzzle.hint ? '<br/><span style="font-size:12px;opacity:.7">💡 ' + escHtml(puzzle.hint) + '</span>' : ''}`;
     showEmojiReaction('wrong');
-    // Shake the answer row
-    const ar = document.getElementById('puzzle-answer-slots');
-    if (ar) { ar.style.animation = 'none'; setTimeout(() => { ar.style.animation = ''; }, 10); }
+  }
+
+  // Update score display using stable ID
+  const sd = document.getElementById('puzzle-score-display');
+  if (sd) sd.textContent = `${_puzzleState.score} pts`;
+}
+
+function revealPuzzle() {
+  if (_puzzleState.revealed) return;
+  _puzzleState.revealed = true;
+  _puzzleState.streak   = 0;
+
+  const { type, puzzle } = _puzzleState;
+  const answer = type === 'scramble' ? puzzle.word : puzzle.a;
+  const inp = document.getElementById('puzzle-input');
+  if (inp) inp.value = answer;
+  _puzzleState.userInput = answer;
+
+  const fb = document.getElementById('puzzle-feedback');
+  if (fb) {
+    fb.style.cssText = 'display:block;text-align:center;font-size:14px;padding:12px;border-radius:10px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:#fbbf24';
+    fb.innerHTML = `💡 Réponse: <strong>${escHtml(String(answer))}</strong>${puzzle.hint ? ' — ' + escHtml(puzzle.hint) : ''}`;
   }
 }
 
-function showPuzzleHint() {
-  if (_puzzleHintUsed) { showToast('Indice déjà utilisé!', 'warn'); return; }
-  _puzzleHintUsed = true;
-  addXP(-5);
-  const puzzle = _generatePuzzle(_puzzleSubject, _puzzleIndex);
-  const hintBox = document.getElementById('puzzle-hint-text');
-  // Reveal first letter
-  if (hintBox) hintBox.textContent = `💡 ${puzzle.hint} — Première lettre: "${puzzle.word[0]}"`;
-  showToast('Indice: première lettre révélée (−5 XP)');
-  // Auto-place the first letter if not already placed
-  if (_puzzleAnswer.length === 0) {
-    const targetLetter = puzzle.word[0];
-    const firstTile = _puzzleLetterOrder.findIndex(t =>
-      t.letter === targetLetter && !_puzzleAnswer.some(a => a.origIdx === t.origIdx)
-    );
-    if (firstTile >= 0) addPuzzleLetter(firstTile);
-  }
-}
+// ══════════════════════════════════════════
+// AI WEB SEARCH TOGGLE (frontend)
+// ══════════════════════════════════════════
 
-function nextDailyPuzzle() {
-  _puzzleIndex = (_puzzleIndex + 1) % 5;
-  _startPuzzleGame(_puzzleSubject, _puzzleIndex);
+function toggleAriaWebSearch() {
+  _ariaWebSearch = !_ariaWebSearch;
+  const btn = document.getElementById('aria-web-btn');
+  if (btn) {
+    btn.style.background = _ariaWebSearch ? 'rgba(52,211,153,0.15)' : 'rgba(255,255,255,0.06)';
+    btn.style.borderColor = _ariaWebSearch ? 'rgba(52,211,153,0.4)' : 'var(--border)';
+    btn.style.color = _ariaWebSearch ? '#34d399' : 'var(--muted)';
+    btn.title = _ariaWebSearch ? 'Recherche web activée (données personnelles non transmises)' : 'Activer la recherche web pour ARIA';
+  }
+  showToast(_ariaWebSearch ? '🌐 Recherche web activée pour ARIA' : '🌐 Recherche web désactivée', '');
 }
 
 (async function init(){
@@ -4734,12 +4772,5 @@ function nextDailyPuzzle() {
   if(currentUser) updateStreak();
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
   setInterval(()=>{ if(document.getElementById('quest-time')) document.getElementById('quest-time').textContent = getQuestTimeLeft(); }, 60000);
-  // Update home puzzle status
-  const homePuzzleStatus = document.getElementById('home-puzzle-status');
-  if (homePuzzleStatus && currentUser) {
-    const dayNum = _getDayNumber();
-    const anyDone = Object.keys(SUBJECTS).some(k => _isPuzzleDoneToday(k, dayNum, 0));
-    if (anyDone) homePuzzleStatus.textContent = '✅ Puzzle du jour complété!';
-  }
   requestNotifPermission();
 })();

@@ -193,4 +193,86 @@ router.get('/linked-students', async (req, res) => {
   }
 });
 
+// ── GET /api/users/contacts ──────────────────────────────────────────
+// Returns a list of users the current user can message.
+// • student  → their linked tutors/parents
+// • tutor    → their linked students + any admin users (teacher)
+// • parent   → their linked students
+// • admin    → all tutors + all students (limited to 100 each)
+// Only non-sensitive fields are returned (id, fname, role, code).
+
+router.get('/contacts', async (req, res) => {
+  try {
+    const { role, userId } = req.user;
+    const contacts = [];
+
+    if (role === 'student') {
+      // Find guardians (tutors/parents) linked to this student
+      const { rows: [me] } = await db.query(
+        'SELECT code FROM users WHERE id = $1',
+        [userId]
+      );
+      if (me?.code) {
+        const { rows } = await db.query(
+          `SELECT u.id, u.fname, u.lname, u.role, u.code
+           FROM users u
+           JOIN student_links sl ON sl.guardian_id = u.id
+           WHERE sl.student_code = $1`,
+          [me.code]
+        );
+        contacts.push(...rows.map(u => ({
+          id: u.id,
+          fname: u.fname,
+          name: `${u.fname} ${u.lname}`.trim(),
+          role: u.role,
+          code: u.code,
+        })));
+      }
+    } else if (role === 'tutor' || role === 'parent') {
+      // Linked students
+      const { rows: links } = await db.query(
+        'SELECT student_code FROM student_links WHERE guardian_id = $1',
+        [userId]
+      );
+      for (const { student_code } of links) {
+        const { rows: [u] } = await db.query(
+          `SELECT id, fname, lname, role, code FROM users WHERE code = $1 AND role = 'student'`,
+          [student_code]
+        );
+        if (u) contacts.push({ id: u.id, fname: u.fname, name: `${u.fname} ${u.lname}`.trim(), role: u.role, code: u.code });
+      }
+      // Admin/teacher users (for tutor only)
+      if (role === 'tutor') {
+        const { rows: admins } = await db.query(
+          `SELECT id, fname, lname, role, code FROM users WHERE role = 'admin' LIMIT 100`
+        );
+        contacts.push(...admins.map(u => ({
+          id: u.id,
+          fname: u.fname,
+          name: `${u.fname} ${u.lname}`.trim(),
+          role: u.role,
+          code: u.code,
+        })));
+      }
+    } else if (role === 'admin') {
+      // Admin can message all tutors and all students
+      const { rows: tutors } = await db.query(
+        `SELECT id, fname, lname, role, code FROM users WHERE role = 'tutor' LIMIT 100`
+      );
+      const { rows: students } = await db.query(
+        `SELECT id, fname, lname, role, code FROM users WHERE role = 'student' LIMIT 100`
+      );
+      contacts.push(
+        ...tutors.map(u => ({ id: u.id, fname: u.fname, name: `${u.fname} ${u.lname}`.trim(), role: u.role, code: u.code })),
+        ...students.map(u => ({ id: u.id, fname: u.fname, name: `${u.fname} ${u.lname}`.trim(), role: u.role, code: u.code })),
+      );
+    }
+
+    res.json(contacts);
+  } catch (err) {
+    console.error('GET /users/contacts error:', err);
+    res.status(500).json({ error: 'Failed to retrieve contacts' });
+  }
+});
+
 module.exports = router;
